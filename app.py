@@ -7,18 +7,28 @@ import json
 from yolov5.models.common import DetectMultiBackend
 from yolov5.utils.augmentations import letterbox
 from yolov5.utils.general import non_max_suppression, scale_boxes
-
-# Load YOLOv5 model
-model = DetectMultiBackend("best.pt", device="cpu")
-model.eval()
+# List available models
+def get_model_choices():
+    model_dir = "model"
+    choices = []
+    for name in os.listdir(model_dir):
+        path = os.path.join(model_dir, name, "best.pt")
+        if os.path.isfile(path):
+            choices.append(f"{name}/best.pt")
+    return choices
 
 # Custom class names
 class_names = ["km"]
 
-# Detection function
-def detect(image):
+# Detection function with model selection
+def detect(image, model_choice):
     orig = image.copy()
     img = np.array(image)
+
+    # Load selected model
+    model_path = os.path.join("model", model_choice)
+    model = DetectMultiBackend(model_path, device="cpu")
+    model.eval()
 
     # Preprocess
     img_resized = letterbox(img, new_shape=640)[0]
@@ -54,16 +64,19 @@ def detect(image):
 
     return orig, json.dumps(detections, indent=2)
 
-# Gradio Interface
+# Gradio Interface with model selection
 demo = gr.Interface(
     fn=detect,
-    inputs=gr.Image(type="pil", label="Upload Image"),
+    inputs=[
+        gr.Image(type="pil", label="Upload Image"),
+        gr.Dropdown(choices=get_model_choices(), value=get_model_choices()[0] if get_model_choices() else None, label="Select Model")
+    ],
     outputs=[
         gr.Image(type="pil", label="Detected Image"),
         gr.Textbox(label="Detection Results (JSON)")
     ],
     title="YOLOv5 Object Detection",
-    description="Upload an image to detect objects using your YOLOv5 model."
+    description="Upload an image and select a model to detect objects using your YOLOv5 model."
 )
 
 demo.launch()
