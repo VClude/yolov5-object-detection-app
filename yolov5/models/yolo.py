@@ -27,10 +27,12 @@ if platform.system() != "Windows":
 
 from models.common import (
     C3,
+    C3CA,
     C3SPP,
     C3TR,
     SPP,
     SPPF,
+    CABottleneck,
     Bottleneck,
     BottleneckCSP,
     C3Ghost,
@@ -50,10 +52,10 @@ from models.common import (
     Proto,
 )
 from models.experimental import MixConv2d
-from yolov5.utils.autoanchor import check_anchor_order
-from yolov5.utils.general import LOGGER, check_version, check_yaml, colorstr, make_divisible, print_args
-from yolov5.utils.plots import feature_visualization
-from yolov5.utils.torch_utils import (
+from utils.autoanchor import check_anchor_order
+from utils.general import LOGGER, check_version, check_yaml, colorstr, make_divisible, print_args
+from utils.plots import feature_visualization
+from utils.torch_utils import (
     fuse_conv_and_bn,
     initialize_weights,
     model_info,
@@ -406,6 +408,7 @@ def parse_model(d, ch):
             GhostConv,
             Bottleneck,
             GhostBottleneck,
+            CABottleneck,
             SPP,
             SPPF,
             DWConv,
@@ -413,6 +416,7 @@ def parse_model(d, ch):
             Focus,
             CrossConv,
             BottleneckCSP,
+            C3CA,
             C3,
             C3TR,
             C3SPP,
@@ -426,7 +430,7 @@ def parse_model(d, ch):
                 c2 = make_divisible(c2 * gw, ch_mul)
 
             args = [c1, c2, *args[1:]]
-            if m in {BottleneckCSP, C3, C3TR, C3Ghost, C3x}:
+            if m in {BottleneckCSP, C3, C3CA, C3TR, C3Ghost, C3x}:
                 args.insert(2, n)  # number of repeats
                 n = 1
         elif m is nn.BatchNorm2d:

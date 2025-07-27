@@ -29,7 +29,7 @@ from zipfile import ZipFile, is_zipfile
 import cv2
 import numpy as np
 import pandas as pd
-import pkg_resources as pkg
+from packaging.version import parse as parse_version
 import torch
 import torchvision
 import yaml
@@ -44,10 +44,11 @@ except (ImportError, AssertionError):
     import ultralytics
 
 from ultralytics.utils.checks import check_requirements
+from ultralytics.utils.patches import torch_load
 
-from yolov5.utils import TryExcept, emojis
-from yolov5.utils.downloads import curl_download, gsutil_getsize
-from yolov5.utils.metrics import box_iou, fitness
+from utils import TryExcept, emojis
+from utils.downloads import curl_download, gsutil_getsize
+from utils.metrics import box_iou, fitness
 
 FILE = Path(__file__).resolve()
 ROOT = FILE.parents[1]  # YOLOv5 root directory
@@ -289,7 +290,7 @@ def init_seeds(seed=0, deterministic=False):
     torch.cuda.manual_seed_all(seed)  # for Multi-GPU, exception safe
     # torch.backends.cudnn.benchmark = True  # AutoBatch problem https://github.com/ultralytics/yolov5/issues/9287
     if deterministic and check_version(torch.__version__, "1.12.0"):  # https://github.com/ultralytics/yolov5/pull/8213
-        torch.use_deterministic_algorithms(True)
+        torch.use_deterministic_algorithms(True, warn_only=True)
         torch.backends.cudnn.deterministic = True
         os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
         os.environ["PYTHONHASHSEED"] = str(seed)
@@ -424,7 +425,7 @@ def check_python(minimum="3.8.0"):
 
 def check_version(current="0.0.0", minimum="0.0.0", name="version ", pinned=False, hard=False, verbose=False):
     """Checks if the current version meets the minimum required version, exits or warns based on parameters."""
-    current, minimum = (pkg.parse_version(x) for x in (current, minimum))
+    current, minimum = (parse_version(x) for x in (current, minimum))
     result = (current == minimum) if pinned else (current >= minimum)  # bool
     s = f"WARNING ⚠️ {name}{minimum} is required by YOLOv5, but {name}{current} is currently installed"  # string
     if hard:
@@ -1125,9 +1126,9 @@ def strip_optimizer(f="best.pt", s=""):
     Strips optimizer and optionally saves checkpoint to finalize training; arguments are file path 'f' and save path
     's'.
 
-    Example: from yolov5.utils.general import *; strip_optimizer()
+    Example: from utils.general import *; strip_optimizer()
     """
-    x = torch.load(f, map_location=torch.device("cpu"))
+    x = torch_load(f, map_location=torch.device("cpu"))
     if x.get("ema"):
         x["model"] = x["ema"]  # replace model with ema
     for k in "optimizer", "best_fitness", "ema", "updates":  # keys

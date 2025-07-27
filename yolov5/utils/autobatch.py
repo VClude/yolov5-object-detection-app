@@ -6,13 +6,13 @@ from copy import deepcopy
 import numpy as np
 import torch
 
-from yolov5.utils.general import LOGGER, colorstr
-from yolov5.utils.torch_utils import profile
+from utils.general import LOGGER, colorstr
+from utils.torch_utils import profile
 
 
 def check_train_batch_size(model, imgsz=640, amp=True):
     """Checks and computes optimal training batch size for YOLOv5 model, given image size and AMP setting."""
-    with torch.cuda.amp.autocast(amp):
+    with torch.amp.autocast('cuda', enabled=amp):
         return autobatch(deepcopy(model).train(), imgsz)  # compute optimal batch size
 
 
@@ -20,7 +20,7 @@ def autobatch(model, imgsz=640, fraction=0.8, batch_size=16):
     """Estimates optimal YOLOv5 batch size using `fraction` of CUDA memory."""
     # Usage:
     #     import torch
-    #     from yolov5.utils.autobatch import autobatch
+    #     from utils.autobatch import autobatch
     #     model = torch.hub.load('ultralytics/yolov5', 'yolov5s', autoshape=False)
     #     print(autobatch(model))
 

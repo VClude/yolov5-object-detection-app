@@ -4,7 +4,6 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 import os
 import json
-
 from yolov5.models.common import DetectMultiBackend
 from yolov5.utils.augmentations import letterbox
 from yolov5.utils.general import non_max_suppression, scale_boxes
@@ -14,7 +13,7 @@ model = DetectMultiBackend("best.pt", device="cpu")
 model.eval()
 
 # Custom class names
-class_names = ["Animal", "Traffic Light", "Waste Container"]
+class_names = ["km"]
 
 # Detection function
 def detect(image):

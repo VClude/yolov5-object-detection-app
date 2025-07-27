@@ -35,8 +35,8 @@ if str(ROOT) not in sys.path:
 ROOT = Path(os.path.relpath(ROOT, Path.cwd()))  # relative
 
 from models.common import DetectMultiBackend
-from yolov5.utils.dataloaders import create_classification_dataloader
-from yolov5.utils.general import (
+from utils.dataloaders import create_classification_dataloader
+from utils.general import (
     LOGGER,
     TQDM_BAR_FORMAT,
     Profile,
@@ -46,7 +46,7 @@ from yolov5.utils.general import (
     increment_path,
     print_args,
 )
-from yolov5.utils.torch_utils import select_device, smart_inference_mode
+from utils.torch_utils import select_device, smart_inference_mode
 
 
 @smart_inference_mode()
@@ -108,7 +108,7 @@ def run(
     action = "validating" if dataloader.dataset.root.stem == "val" else "testing"
     desc = f"{pbar.desc[:-36]}{action:>36}" if pbar else f"{action}"
     bar = tqdm(dataloader, desc, n, not training, bar_format=TQDM_BAR_FORMAT, position=0)
-    with torch.cuda.amp.autocast(enabled=device.type != "cpu"):
+    with torch.amp.autocast('cuda', enabled=device.type != "cpu"):
         for images, labels in bar:
             with dt[0]:
                 images, labels = images.to(device, non_blocking=True), labels.to(device)

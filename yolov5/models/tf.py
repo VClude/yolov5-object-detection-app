@@ -44,8 +44,8 @@ from models.common import (
 )
 from models.experimental import MixConv2d, attempt_load
 from models.yolo import Detect, Segment
-from yolov5.utils.activations import SiLU
-from yolov5.utils.general import LOGGER, make_divisible, print_args
+from utils.activations import SiLU
+from utils.general import LOGGER, make_divisible, print_args
 
 
 class TFBN(keras.layers.Layer):

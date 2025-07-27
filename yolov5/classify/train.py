@@ -27,7 +27,7 @@ import torch.distributed as dist
 import torch.hub as hub
 import torch.optim.lr_scheduler as lr_scheduler
 import torchvision
-from torch.cuda import amp
+from torch import amp
 from tqdm import tqdm
 
 FILE = Path(__file__).resolve()
@@ -39,8 +39,8 @@ ROOT = Path(os.path.relpath(ROOT, Path.cwd()))  # relative
 from classify import val as validate
 from models.experimental import attempt_load
 from models.yolo import ClassificationModel, DetectionModel
-from yolov5.utils.dataloaders import create_classification_dataloader
-from yolov5.utils.general import (
+from utils.dataloaders import create_classification_dataloader
+from utils.general import (
     DATASETS_DIR,
     LOGGER,
     TQDM_BAR_FORMAT,
@@ -55,9 +55,9 @@ from yolov5.utils.general import (
     print_args,
     yaml_save,
 )
-from yolov5.utils.loggers import GenericLogger
-from yolov5.utils.plots import imshow_cls
-from yolov5.utils.torch_utils import (
+from utils.loggers import GenericLogger
+from utils.plots import imshow_cls
+from utils.torch_utils import (
     ModelEMA,
     de_parallel,
     model_info,
@@ -198,7 +198,7 @@ def train(opt, device):
     t0 = time.time()
     criterion = smartCrossEntropyLoss(label_smoothing=opt.label_smoothing)  # loss function
     best_fitness = 0.0
-    scaler = amp.GradScaler(enabled=cuda)
+    scaler = amp.GradScaler('cuda',enabled=cuda)
     val = test_dir.stem  # 'val' or 'test'
     LOGGER.info(
         f"Image sizes {imgsz} train, {imgsz} test\n"
@@ -219,7 +219,7 @@ def train(opt, device):
             images, labels = images.to(device, non_blocking=True), labels.to(device)
 
             # Forward
-            with amp.autocast(enabled=cuda):  # stability issues when enabled
+            with amp.autocast('cuda',enabled=cuda):  # stability issues when enabled
                 loss = criterion(model(images), labels)
 
             # Backward

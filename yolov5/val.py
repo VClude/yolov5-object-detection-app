@@ -37,9 +37,9 @@ if str(ROOT) not in sys.path:
 ROOT = Path(os.path.relpath(ROOT, Path.cwd()))  # relative
 
 from models.common import DetectMultiBackend
-from yolov5.utils.callbacks import Callbacks
-from yolov5.utils.dataloaders import create_dataloader
-from yolov5.utils.general import (
+from utils.callbacks import Callbacks
+from utils.dataloaders import create_dataloader
+from utils.general import (
     LOGGER,
     TQDM_BAR_FORMAT,
     Profile,
@@ -56,9 +56,9 @@ from yolov5.utils.general import (
     xywh2xyxy,
     xyxy2xywh,
 )
-from yolov5.utils.metrics import ConfusionMatrix, ap_per_class, box_iou
-from yolov5.utils.plots import output_to_target, plot_images, plot_val_study
-from yolov5.utils.torch_utils import select_device, smart_inference_mode
+from utils.metrics import ConfusionMatrix, ap_per_class, box_iou
+from utils.plots import output_to_target, plot_images, plot_val_study
+from utils.torch_utils import select_device, smart_inference_mode
 
 
 def save_one_txt(predn, save_conf, shape, file):

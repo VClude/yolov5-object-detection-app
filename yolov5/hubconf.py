@@ -10,7 +10,7 @@ Usage:
     model = torch.hub.load('.', 'custom', 'yolov5s.pt', source='local')  # local repo
 """
 
-import torch
+from ultralytics.utils.patches import torch_load
 
 
 def _create(name, pretrained=True, channels=3, classes=80, autoshape=True, verbose=True, device=None):
@@ -54,9 +54,9 @@ def _create(name, pretrained=True, channels=3, classes=80, autoshape=True, verbo
     from models.common import AutoShape, DetectMultiBackend
     from models.experimental import attempt_load
     from models.yolo import ClassificationModel, DetectionModel, SegmentationModel
-    from yolov5.utils.downloads import attempt_download
-    from yolov5.utils.general import LOGGER, ROOT, check_requirements, intersect_dicts, logging
-    from yolov5.utils.torch_utils import select_device
+    from utils.downloads import attempt_download
+    from utils.general import LOGGER, ROOT, check_requirements, intersect_dicts, logging
+    from utils.torch_utils import select_device
 
     if not verbose:
         LOGGER.setLevel(logging.WARNING)
@@ -87,7 +87,7 @@ def _create(name, pretrained=True, channels=3, classes=80, autoshape=True, verbo
             cfg = list((Path(__file__).parent / "models").rglob(f"{path.stem}.yaml"))[0]  # model.yaml path
             model = DetectionModel(cfg, channels, classes)  # create model
             if pretrained:
-                ckpt = torch.load(attempt_download(path), map_location=device)  # load
+                ckpt = torch_load(attempt_download(path), map_location=device)  # load
                 csd = ckpt["model"].float().state_dict()  # checkpoint state_dict as FP32
                 csd = intersect_dicts(csd, model.state_dict(), exclude=["anchors"])  # intersect
                 model.load_state_dict(csd, strict=False)  # load
@@ -480,7 +480,7 @@ if __name__ == "__main__":
     import numpy as np
     from PIL import Image
 
-    from yolov5.utils.general import cv2, print_args
+    from utils.general import cv2, print_args
 
     # Argparser
     parser = argparse.ArgumentParser()

@@ -40,14 +40,16 @@ if str(ROOT) not in sys.path:
     sys.path.append(str(ROOT))  # add ROOT to PATH
 ROOT = Path(os.path.relpath(ROOT, Path.cwd()))  # relative
 
+from ultralytics.utils.patches import torch_load
+
 import segment.val as validate  # for end-of-epoch mAP
 from models.experimental import attempt_load
 from models.yolo import SegmentationModel
-from yolov5.utils.autoanchor import check_anchors
-from yolov5.utils.autobatch import check_train_batch_size
-from yolov5.utils.callbacks import Callbacks
-from yolov5.utils.downloads import attempt_download, is_url
-from yolov5.utils.general import (
+from utils.autoanchor import check_anchors
+from utils.autobatch import check_train_batch_size
+from utils.callbacks import Callbacks
+from utils.downloads import attempt_download, is_url
+from utils.general import (
     LOGGER,
     TQDM_BAR_FORMAT,
     check_amp,
@@ -72,13 +74,13 @@ from yolov5.utils.general import (
     strip_optimizer,
     yaml_save,
 )
-from yolov5.utils.loggers import GenericLogger
-from yolov5.utils.plots import plot_evolve, plot_labels
-from yolov5.utils.segment.dataloaders import create_dataloader
-from yolov5.utils.segment.loss import ComputeLoss
-from yolov5.utils.segment.metrics import KEYS, fitness
-from yolov5.utils.segment.plots import plot_images_and_masks, plot_results_with_masks
-from yolov5.utils.torch_utils import (
+from utils.loggers import GenericLogger
+from utils.plots import plot_evolve, plot_labels
+from utils.segment.dataloaders import create_dataloader
+from utils.segment.loss import ComputeLoss
+from utils.segment.metrics import KEYS, fitness
+from utils.segment.plots import plot_images_and_masks, plot_results_with_masks
+from utils.torch_utils import (
     EarlyStopping,
     ModelEMA,
     de_parallel,
@@ -174,7 +176,7 @@ def train(hyp, opt, device, callbacks):
     if pretrained:
         with torch_distributed_zero_first(LOCAL_RANK):
             weights = attempt_download(weights)  # download if not found locally
-        ckpt = torch.load(weights, map_location="cpu")  # load checkpoint to CPU to avoid CUDA memory leak
+        ckpt = torch_load(weights, map_location="cpu")  # load checkpoint to CPU to avoid CUDA memory leak
         model = SegmentationModel(cfg or ckpt["model"].yaml, ch=3, nc=nc, anchors=hyp.get("anchors")).to(device)
         exclude = ["anchor"] if (cfg or hyp.get("anchors")) and not resume else []  # exclude keys
         csd = ckpt["model"].float().state_dict()  # checkpoint state_dict as FP32
@@ -380,7 +382,7 @@ def train(hyp, opt, device, callbacks):
                     imgs = nn.functional.interpolate(imgs, size=ns, mode="bilinear", align_corners=False)
 
             # Forward
-            with torch.cuda.amp.autocast(amp):
+            with torch.amp.autocast('cuda', amp):
                 pred = model(imgs)  # forward
                 loss, loss_items = compute_loss(pred, targets.to(device), masks=masks.to(device).float())
                 if RANK != -1:
@@ -605,7 +607,7 @@ def main(opt, callbacks=Callbacks()):
             with open(opt_yaml, errors="ignore") as f:
                 d = yaml.safe_load(f)
         else:
-            d = torch.load(last, map_location="cpu")["opt"]
+            d = torch_load(last, map_location="cpu")["opt"]
         opt = argparse.Namespace(**d)  # replace
         opt.cfg, opt.weights, opt.resume = "", str(last), True  # reinstate
         if is_url(opt_data):

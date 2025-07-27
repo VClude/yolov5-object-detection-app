@@ -46,9 +46,9 @@ ROOT = Path(os.path.relpath(ROOT, Path.cwd()))  # relative
 from ultralytics.utils.plotting import Annotator
 
 from models.common import DetectMultiBackend
-from yolov5.utils.augmentations import classify_transforms
-from yolov5.utils.dataloaders import IMG_FORMATS, VID_FORMATS, LoadImages, LoadScreenshots, LoadStreams
-from yolov5.utils.general import (
+from utils.augmentations import classify_transforms
+from utils.dataloaders import IMG_FORMATS, VID_FORMATS, LoadImages, LoadScreenshots, LoadStreams
+from utils.general import (
     LOGGER,
     Profile,
     check_file,
@@ -61,7 +61,7 @@ from yolov5.utils.general import (
     print_args,
     strip_optimizer,
 )
-from yolov5.utils.torch_utils import select_device, smart_inference_mode
+from utils.torch_utils import select_device, smart_inference_mode
 
 
 @smart_inference_mode()
