@@ -48,13 +48,13 @@ def get_layer_choices(model_path):
 
 def detect(image, model_choice, layer_choice):
     # Resize input image to square before processing
-    img_resized = image.resize((640, 640))
+    img_resized = image
     img = np.array(img_resized)
     model_path = os.path.join("model", model_choice)
     device = "cpu"
     model = DetectMultiBackend(model_path, device=device)
     stride, names, pt = model.stride, class_names, model.pt
-    imgsz = (640, 640)
+    imgsz = (image.width, image.height)
     model.eval()
 
     layer_name = layer_choice.split(' (')[0] if layer_choice else None
