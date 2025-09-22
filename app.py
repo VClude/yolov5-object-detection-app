@@ -7,6 +7,9 @@ import json
 from yolov5.models.common import DetectMultiBackend
 from yolov5.utils.augmentations import letterbox
 from yolov5.utils.general import non_max_suppression, scale_boxes
+import matplotlib.pyplot as plt
+import io
+import tempfile
 # List available models
 def get_model_choices():
     model_dir = 'model'
@@ -46,7 +49,7 @@ def get_layer_choices(model_path):
 
 # Detection function using detect.py logic
 
-def detect(image, model_choice, layer_choice):
+def detect(image, model_choice, layer_choice, above_color, below_color):
     # Resize input image to square before processing
     orig = image.copy()
     img = np.array(image)
@@ -93,7 +96,7 @@ def detect(image, model_choice, layer_choice):
             for *xyxy, conf, cls in det:
                 cls_id = int(cls.item())
                 label = f"{names[cls_id]}: {conf:.2f}"
-                color = "green" if conf >= 0.5 else "red"
+                color = above_color if conf >= 0.5 else below_color
                 draw.rectangle(xyxy, outline=color, width=4)
                 # Increase padding between box and text
                 text_position = (xyxy[0], max(0, xyxy[1] - font_size - 10))
@@ -114,6 +117,8 @@ def detect(image, model_choice, layer_choice):
     summary_text = "\n".join(summary_lines) if summary_lines else "No objects detected."
 
     inter_out = intermediate.get('output')
+    histogram_img = None
+    inter_out_file = None
     if inter_out is not None:
         arr = inter_out
         if arr.ndim == 4:
@@ -121,10 +126,27 @@ def detect(image, model_choice, layer_choice):
         arr = arr[0] if arr.shape[0] > 0 else arr
         arr = (arr - arr.min()) / (np.ptp(arr) + 1e-6) * 255
         inter_img = Image.fromarray(arr.astype(np.uint8))
+
+        # Save NumPy array to a temporary file
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".npy") as tmp_file:
+            np.save(tmp_file.name, inter_out)
+            inter_out_file = tmp_file.name
+
+        # Generate histogram of pixel distribution
+        plt.figure()
+        plt.hist(arr.flatten(), bins=256, color='blue', alpha=0.7)
+        plt.title("Pixel Distribution")
+        plt.xlabel("Pixel Value")
+        plt.ylabel("Frequency")
+        buf = io.BytesIO()
+        plt.savefig(buf, format='png')
+        buf.seek(0)
+        histogram_img = Image.open(buf).copy()  # Ensure the image is loaded into memory
+        buf.close()
     else:
         inter_img = None
 
-    return summary_text,orig, json.dumps(detections, indent=2), inter_img, get_model_structure(model_choice)
+    return summary_text, orig, json.dumps(detections, indent=2), inter_img, histogram_img, get_model_structure(model_choice), inter_out_file
 
 def get_model_structure(model_choice):
     model_path = os.path.join("model", model_choice)
@@ -149,17 +171,21 @@ demo = gr.Interface(
     inputs=[
         gr.Image(type="pil", label="Upload Image"),
         gr.Dropdown(choices=get_model_choices(), value=get_default_model(), label="Select Model"),
-        gr.Dropdown(choices=get_layer_choices(os.path.join("model", get_default_model())) if get_default_model() else [], value=get_default_layer(), label="Select Layer")
+        gr.Dropdown(choices=get_layer_choices(os.path.join("model", get_default_model())) if get_default_model() else [], value=get_default_layer(), label="Select Layer"),
+        gr.ColorPicker(value="green", label="Color for Confidence >= 0.5"),
+        gr.ColorPicker(value="red", label="Color for Confidence < 0.5")
     ],
     outputs=[
         gr.Textbox(label="Detection Summary"),
         gr.Image(type="pil", label="Detected Image"),
         gr.Textbox(label="Detection Results (JSON)"),
         gr.Image(type="pil", label="Intermediate Layer Output"),
+        gr.Image(type="pil", label="Pixel Distribution Histogram"),
         gr.Textbox(label="Model Structure"),
+        gr.File(label="Download Intermediate Layer Output (NumPy Tensor)")
     ],
     title="YOLOv5 Object Detection",
-    description="Upload an image, select a model and layer to view detection, intermediate output, model structure, summary, and preprocessed image."
+    description="Upload an image, select a model and layer to view detection, intermediate output, model structure, summary, and preprocessed image. Customize bounding box colors for confidence levels. Download intermediate layer output and view pixel distribution histogram."
 )
 
 demo.launch()
