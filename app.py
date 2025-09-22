@@ -48,24 +48,23 @@ def get_layer_choices(model_path):
 
 def detect(image, model_choice, layer_choice):
     # Resize input image to square before processing
-    img_resized = image
-    img = np.array(img_resized)
+    orig = image.copy()
+    img = np.array(image)
     model_path = os.path.join("model", model_choice)
     device = "cpu"
     model = DetectMultiBackend(model_path, device=device)
-    stride, names, pt = model.stride, class_names, model.pt
-    imgsz = (image.width, image.height)
+    names = class_names
     model.eval()
 
     layer_name = layer_choice.split(' (')[0] if layer_choice else None
 
     # Preprocess for model
-    img_for_model, ratio, pad = letterbox(img, new_shape=imgsz, auto=pt)
+    img_for_model = letterbox(img, new_shape=(640, 640))[0]
     img_for_model = img_for_model.transpose((2, 0, 1))
-    img_tensor = torch.from_numpy(img_for_model).to(device)
-    img_tensor = img_tensor.float() / 255.0
-    if img_tensor.ndim == 3:
-        img_tensor = img_tensor.unsqueeze(0)
+    img_tensor = torch.from_numpy(img_for_model).float() / 255.0
+    # img_tensor = torch.from_numpy(img_for_model).to(device)
+    # if img_tensor.ndim == 3:
+    img_tensor = img_tensor.unsqueeze(0)
 
     intermediate = {}
     def hook_fn(module, input, output):
@@ -78,9 +77,9 @@ def detect(image, model_choice, layer_choice):
     pred = model(img_tensor, augment=False, visualize=False)
     pred = non_max_suppression(pred, 0.25, 0.45, classes=None, agnostic=False, max_det=1000)
 
-    draw = ImageDraw.Draw(img_resized)
+    draw = ImageDraw.Draw(orig)
     try:
-        font = ImageFont.truetype("DejaVuSans-Bold.ttf", size=20)
+        font = ImageFont.truetype("DejaVuSans-Bold.ttf", size=48)
     except:
         font = ImageFont.load_default()
 
@@ -88,7 +87,8 @@ def detect(image, model_choice, layer_choice):
     summary = {}
     for det in pred:
         if det is not None and len(det):
-            det[:, :4] = scale_boxes(img_tensor.shape[2:], det[:, :4], img_resized.size).round()
+            print(img_tensor.shape[2:], orig.size)
+            det[:, :4] = scale_boxes(img_tensor.shape[2:], det[:, :4], (orig.height, orig.width)).round()
             for *xyxy, conf, cls in det:
                 cls_id = int(cls.item())
                 label = f"{names[cls_id]}: {conf:.2f}"
@@ -121,7 +121,7 @@ def detect(image, model_choice, layer_choice):
     else:
         inter_img = None
 
-    return img_resized, json.dumps(detections, indent=2), inter_img, get_model_structure(model_choice), summary_text, img_resized
+    return orig, json.dumps(detections, indent=2), inter_img, get_model_structure(model_choice), summary_text, orig
 
 def get_model_structure(model_choice):
     model_path = os.path.join("model", model_choice)
