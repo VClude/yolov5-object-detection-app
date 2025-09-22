@@ -124,7 +124,7 @@ def detect(image, model_choice, layer_choice):
     else:
         inter_img = None
 
-    return orig, json.dumps(detections, indent=2), inter_img, get_model_structure(model_choice), summary_text, orig
+    return summary_text,orig, json.dumps(detections, indent=2), inter_img, get_model_structure(model_choice)
 
 def get_model_structure(model_choice):
     model_path = os.path.join("model", model_choice)
