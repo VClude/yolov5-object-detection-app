@@ -78,23 +78,26 @@ def detect(image, model_choice, layer_choice):
     pred = non_max_suppression(pred, 0.25, 0.45, classes=None, agnostic=False, max_det=1000)
 
     draw = ImageDraw.Draw(orig)
+    font_size = 32
     try:
-        font = ImageFont.truetype("DejaVuSans-Bold.ttf", size=48)
+        # Define font_size for dynamic scaling
+        font = ImageFont.truetype("DejaVuSans-Bold.ttf", size=font_size)
     except:
-        font = ImageFont.load_default()
+        font = ImageFont.load_default(size=font_size)
 
     detections = []
     summary = {}
     for det in pred:
         if det is not None and len(det):
-            print(img_tensor.shape[2:], orig.size)
             det[:, :4] = scale_boxes(img_tensor.shape[2:], det[:, :4], (orig.height, orig.width)).round()
             for *xyxy, conf, cls in det:
                 cls_id = int(cls.item())
                 label = f"{names[cls_id]}: {conf:.2f}"
                 color = "green" if conf >= 0.5 else "red"
                 draw.rectangle(xyxy, outline=color, width=4)
-                draw.text((xyxy[0], xyxy[1] - 25), label, fill=color, font=font)
+                # Increase padding between box and text
+                text_position = (xyxy[0], max(0, xyxy[1] - font_size - 10))
+                draw.text(text_position, label, fill=color, font=font)
                 detections.append({
                     "class": names[cls_id],
                     "confidence": round(float(conf), 3),
@@ -149,11 +152,11 @@ demo = gr.Interface(
         gr.Dropdown(choices=get_layer_choices(os.path.join("model", get_default_model())) if get_default_model() else [], value=get_default_layer(), label="Select Layer")
     ],
     outputs=[
+        gr.Textbox(label="Detection Summary"),
         gr.Image(type="pil", label="Detected Image"),
         gr.Textbox(label="Detection Results (JSON)"),
         gr.Image(type="pil", label="Intermediate Layer Output"),
         gr.Textbox(label="Model Structure"),
-        gr.Textbox(label="Detection Summary"),
     ],
     title="YOLOv5 Object Detection",
     description="Upload an image, select a model and layer to view detection, intermediate output, model structure, summary, and preprocessed image."
