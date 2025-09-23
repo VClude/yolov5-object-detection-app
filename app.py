@@ -10,6 +10,8 @@ from yolov5.utils.general import non_max_suppression, scale_boxes
 import matplotlib.pyplot as plt
 import io
 import tempfile
+from torch.profiler import profile, ProfilerActivity
+import time
 # List available models
 def get_model_choices():
     model_dir = 'model'
@@ -26,6 +28,8 @@ class_names = ["km"]
 # Helper to get layer names with type and backbone/head info
 
 def get_layer_choices(model_path):
+    model_path = model_path.replace('\\', "/")  # Sanitize path
+    print(model_path)
     model = DetectMultiBackend(model_path, device="cpu")
     layers = []
     # Find head start index (Detect/Segment)
@@ -65,8 +69,6 @@ def detect(image, model_choice, layer_choice, above_color, below_color):
     img_for_model = letterbox(img, new_shape=(640, 640))[0]
     img_for_model = img_for_model.transpose((2, 0, 1))
     img_tensor = torch.from_numpy(img_for_model).float() / 255.0
-    # img_tensor = torch.from_numpy(img_for_model).to(device)
-    # if img_tensor.ndim == 3:
     img_tensor = img_tensor.unsqueeze(0)
 
     intermediate = {}
@@ -77,8 +79,17 @@ def detect(image, model_choice, layer_choice, above_color, below_color):
             module.register_forward_hook(hook_fn)
             break
 
-    pred = model(img_tensor, augment=False, visualize=False)
+    # Measure inference time and GFLOPs
+    start_time = time.time()
+    with profile(activities=[ProfilerActivity.CPU], record_shapes=True) as prof:
+        pred = model(img_tensor, augment=False, visualize=False)
+    end_time = time.time()
+
     pred = non_max_suppression(pred, 0.25, 0.45, classes=None, agnostic=False, max_det=1000)
+
+    inference_time = end_time - start_time
+    gflops = sum([event.cpu_time_total for event in prof.key_averages()]) / 1e6
+    fps = 1 / inference_time
 
     draw = ImageDraw.Draw(orig)
     font_size = 32
@@ -146,7 +157,7 @@ def detect(image, model_choice, layer_choice, above_color, below_color):
     else:
         inter_img = None
 
-    return summary_text, orig, json.dumps(detections, indent=2), inter_img, histogram_img, get_model_structure(model_choice), inter_out_file
+    return summary_text, orig, f"Inference Time: {inference_time:.2f}s\nGFLOPs: {gflops:.2f}\nFPS: {fps:.2f}", json.dumps(detections, indent=2), inter_img, histogram_img, inter_out_file
 
 def get_model_structure(model_choice):
     model_path = os.path.join("model", model_choice)
@@ -178,14 +189,14 @@ demo = gr.Interface(
     outputs=[
         gr.Textbox(label="Detection Summary"),
         gr.Image(type="pil", label="Detected Image"),
+        gr.Textbox(label="Inference Metrics (GFLOPs, FPS, etc.)"),
         gr.Textbox(label="Detection Results (JSON)"),
         gr.Image(type="pil", label="Intermediate Layer Output"),
         gr.Image(type="pil", label="Pixel Distribution Histogram"),
-        gr.Textbox(label="Model Structure"),
         gr.File(label="Download Intermediate Layer Output (NumPy Tensor)")
     ],
     title="YOLOv5 Object Detection",
-    description="Upload an image, select a model and layer to view detection, intermediate output, model structure, summary, and preprocessed image. Customize bounding box colors for confidence levels. Download intermediate layer output and view pixel distribution histogram."
+    description="Upload an image, select a model and layer to view detection, intermediate output, model structure, summary, and preprocessed image. Customize bounding box colors for confidence levels. View inference metrics and download intermediate layer output."
 )
 
 demo.launch()
