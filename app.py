@@ -12,6 +12,12 @@ import io
 import tempfile
 from torch.profiler import profile, ProfilerActivity
 import time
+import pathlib
+import platform
+
+# Fix for Windows path compatibility
+if platform.system() == 'Windows':
+    pathlib.PosixPath = pathlib.WindowsPath
 # List available models
 def get_model_choices():
     model_dir = 'model'
@@ -23,13 +29,11 @@ def get_model_choices():
     return choices
 
 # Custom class names
-class_names = ["km"]
+class_names = ["km", "st", "non-km"]
 
 # Helper to get layer names with type and backbone/head info
 
 def get_layer_choices(model_path):
-    model_path = model_path.replace('\\', "/")  # Sanitize path
-    print(model_path)
     model = DetectMultiBackend(model_path, device="cpu")
     layers = []
     # Find head start index (Detect/Segment)
