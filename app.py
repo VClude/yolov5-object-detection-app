@@ -28,8 +28,6 @@ def get_model_choices():
             choices.append(f"{name}/weights/best.pt")
     return choices
 
-# Custom class names
-class_names = ["km", "st", "non-km"]
 
 # Helper to get layer names with type and backbone/head info
 
@@ -64,6 +62,10 @@ def detect(image, model_choice, layer_choice, above_color, below_color):
     model_path = os.path.join("model", model_choice)
     device = "cpu"
     model = DetectMultiBackend(model_path, device=device)
+    if "stomata" in model_choice.lower():
+        class_names = ["st"]
+    else:
+        class_names = ["km", "non-km"]
     names = class_names
     model.eval()
 
@@ -200,7 +202,7 @@ demo = gr.Interface(
         gr.File(label="Download Intermediate Layer Output (NumPy Tensor)")
     ],
     title="YOLOv5 Object Detection",
-    description="Upload an image, select a model and layer to view detection, intermediate output, model structure, summary, and preprocessed image. Customize bounding box colors for confidence levels. View inference metrics and download intermediate layer output."
+    description="Aplikasi deteksi objek menggunakan model dengan YOLOv5",
 )
 
 demo.launch()
