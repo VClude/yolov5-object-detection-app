@@ -89,7 +89,7 @@ def get_layer_choices(model_path):
     return layers
 # Detection function using detect.py logic
 
-def detect(image, model_choice, layer_choice, above_color, below_color, iou_threshold, conf_threshold):
+def detect(image, model_choice, layer_choice, above_color, below_color, iou_threshold, conf_threshold, image_size):
     # Check if image is provided
     if image is None:
         return "Please upload an image first.", None, "No metrics available", "No detections", None, None, None, "No model structure available", None
@@ -110,7 +110,7 @@ def detect(image, model_choice, layer_choice, above_color, below_color, iou_thre
     layer_name = layer_choice.split(' (')[0] if layer_choice else None
 
     # Preprocess for model
-    img_for_model = letterbox(img, new_shape=(640, 640))[0]
+    img_for_model = letterbox(img, new_shape=(image_size, image_size))[0]
     img_for_model = img_for_model.transpose((2, 0, 1))
     img_tensor = torch.from_numpy(img_for_model).float() / 255.0
     img_tensor = img_tensor.unsqueeze(0)
@@ -222,7 +222,7 @@ def detect(image, model_choice, layer_choice, above_color, below_color, iou_thre
     model_structure = get_model_structure(model_choice)
     
     # Create model architecture diagram
-    architecture_diagram = create_model_architecture_diagram(model_choice)
+    architecture_diagram = create_model_architecture_diagram(model_choice, image_size)
     
     # Calculate model parameters for metrics
     total_params = sum(p.numel() for p in model.model.parameters())
@@ -288,7 +288,7 @@ Model Structure:
     
     return model_info
 
-def create_model_architecture_diagram(model_choice):
+def create_model_architecture_diagram(model_choice, image_size=640):
     """Create a professional visual diagram of the YOLOv5 model architecture"""
     try:
         model_path = os.path.join("model", model_choice)
@@ -354,7 +354,7 @@ def create_model_architecture_diagram(model_choice):
                                           boxstyle="round,pad=0.1", 
                                           facecolor='#74B9FF', edgecolor='#0984E3', linewidth=2)
         ax.add_patch(input_rect)
-        ax.text(2, input_y, '640×640×3', ha='center', va='center', 
+        ax.text(2, input_y, f'{image_size}×{image_size}×3', ha='center', va='center', 
                 fontsize=10, fontweight='bold', color='white')
         
         # Backbone section
@@ -530,7 +530,7 @@ def create_model_architecture_diagram(model_choice):
         stats_text = f"""Model Statistics:
 • Parameters: {format_params(total_params)}
 • Trainable: {format_params(trainable_params)}
-• Input Size: 640×640×3
+• Input Size: {image_size}×{image_size}×3
 • Classes: {getattr(model.model, 'nc', 'N/A')}"""
         
         ax.text(21.5, 7, stats_text, fontsize=10, va='top', ha='left',
@@ -625,6 +625,10 @@ with gr.Blocks() as demo:
                     gr.Markdown("### Detection Thresholds")
                     iou_threshold = gr.Slider(minimum=0.0, maximum=1.0, value=0.45, step=0.05, label="IoU Threshold for NMS")
                     conf_threshold = gr.Slider(minimum=0.0, maximum=1.0, value=0.25, step=0.05, label="Confidence Threshold")
+                
+                with gr.Column():
+                    gr.Markdown("### Image Processing")
+                    image_size = gr.Dropdown(choices=[384, 640, 960, 1280], value=640, label="Yolo Detection Input Image Size (pixels)")
         
         with gr.Tab("Analysis Results"):
             with gr.Row():
@@ -660,7 +664,7 @@ with gr.Blocks() as demo:
     
     detect_btn.click(
         fn=detect,
-        inputs=[image_input, model_dropdown, layer_dropdown, above_color, below_color, iou_threshold, conf_threshold],
+        inputs=[image_input, model_dropdown, layer_dropdown, above_color, below_color, iou_threshold, conf_threshold, image_size],
         outputs=[summary_output, detected_image, metrics_output, json_output, intermediate_output, histogram_output, download_output, structure_output, architecture_diagram]
     )
 
