@@ -301,7 +301,8 @@ def get_default_layer():
 
 def refresh_models():
     """Refresh the list of available models"""
-    return gr.Dropdown(choices=get_model_choices(), value=get_default_model())
+    choices = get_model_choices()
+    return gr.Dropdown(choices=choices, value=choices[0] if choices else None)
 
 def update_layers(model_choice):
     """Update layer choices when model is changed"""
@@ -316,49 +317,52 @@ with gr.Blocks() as demo:
     
     with gr.Row():
         with gr.Column(scale=1):
-            image_input = gr.Image(type="pil", label="Upload Image", height=300)
+            image_input = gr.Image(type="pil", label="Upload Image", height=350)
             
             with gr.Row():
-                model_dropdown = gr.Dropdown(choices=get_model_choices(), value=get_default_model(), label="Select Model", scale=3)
+                model_dropdown = gr.Dropdown(choices=get_model_choices(), value=get_default_model(), label="Select Model", scale=4)
                 refresh_btn = gr.Button("🔄", size="sm", scale=1)
             
             layer_dropdown = gr.Dropdown(choices=get_layer_choices(os.path.join("model", get_default_model())) if get_default_model() else [], value=get_default_layer(), label="Select Layer")
             
-            with gr.Row():
-                above_color = gr.ColorPicker(value="green", label="High Conf Color")
-                below_color = gr.ColorPicker(value="red", label="Low Conf Color")
-            
-            with gr.Row():
-                iou_threshold = gr.Slider(minimum=0.0, maximum=1.0, value=0.45, step=0.05, label="IoU Threshold")
-                conf_threshold = gr.Slider(minimum=0.0, maximum=1.0, value=0.25, step=0.05, label="Confidence Threshold")
-            
-            detect_btn = gr.Button("🔍 Detect Objects", variant="primary")
+            detect_btn = gr.Button("🔍 Detect Objects", variant="primary", size="lg")
         
         with gr.Column(scale=1):
-            detected_image = gr.Image(type="pil", label="Detected Image", height=300)
-            summary_output = gr.Textbox(label="Detection Summary", lines=3)
+            detected_image = gr.Image(type="pil", label="Detected Image", height=350)
+            summary_output = gr.Textbox(label="Detection Summary", lines=8, max_lines=12)
     
-    with gr.Row():
-        with gr.Column():
-            metrics_output = gr.Textbox(label="Inference & Model Metrics", lines=8)
-        with gr.Column():
-            json_output = gr.Textbox(label="Detection Results (JSON)", lines=8)
-    
-    with gr.Row():
-        with gr.Column():
-            intermediate_output = gr.Image(type="pil", label="Intermediate Layer Output", height=250)
-        with gr.Column():
-            histogram_output = gr.Image(type="pil", label="Pixel Distribution", height=250)
-    
-    with gr.Row():
-        with gr.Column():
-            download_output = gr.File(label="Download Layer Output (.npy)")
-        with gr.Column():
-            structure_output = gr.Textbox(label="Model Structure", lines=8, max_lines=15)
+    with gr.Tabs():
+        with gr.Tab("Configuration"):
+            with gr.Row():
+                with gr.Column():
+                    gr.Markdown("### Color Settings")
+                    above_color = gr.ColorPicker(value="green", label="High Confidence Color (≥ 0.5)")
+                    below_color = gr.ColorPicker(value="red", label="Low Confidence Color (< 0.5)")
+                
+                with gr.Column():
+                    gr.Markdown("### Detection Thresholds")
+                    iou_threshold = gr.Slider(minimum=0.0, maximum=1.0, value=0.45, step=0.05, label="IoU Threshold for NMS")
+                    conf_threshold = gr.Slider(minimum=0.0, maximum=1.0, value=0.25, step=0.05, label="Confidence Threshold")
+        
+        with gr.Tab("Analysis Results"):
+            with gr.Row():
+                metrics_output = gr.Textbox(label="Inference & Model Metrics", lines=8, max_lines=12)
+                json_output = gr.Textbox(label="Detection Results (JSON)", lines=8, max_lines=12)
+        
+        with gr.Tab("Layer Analysis"):
+            with gr.Row():
+                intermediate_output = gr.Image(type="pil", label="Intermediate Layer Output", height=250)
+                histogram_output = gr.Image(type="pil", label="Pixel Distribution", height=250)
+            
+            with gr.Row():
+                download_output = gr.File(label="Download Layer Output (.npy)")
+        
+        with gr.Tab("Model Structure"):
+            structure_output = gr.Textbox(label="Model Structure", lines=15, max_lines=25)
     
     # Event handlers
     refresh_btn.click(
-        fn=lambda: get_model_choices(),
+        fn=refresh_models,
         outputs=model_dropdown
     )
     
