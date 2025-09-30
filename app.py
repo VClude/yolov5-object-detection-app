@@ -219,13 +219,72 @@ def detect(image, model_choice, layer_choice, above_color, below_color, iou_thre
 
     # Get model structure
     model_structure = get_model_structure(model_choice)
+    
+    # Calculate model parameters for metrics
+    total_params = sum(p.numel() for p in model.model.parameters())
+    trainable_params = sum(p.numel() for p in model.model.parameters() if p.requires_grad)
+    
+    # Count total layers
+    total_layers = 0
+    for name, module in model.model.named_modules():
+        if len(list(module.children())) == 0:  # Leaf modules only
+            total_layers += 1
+    
+    # Format parameter counts for metrics
+    def format_params(num):
+        if num >= 1e6:
+            return f"{num/1e6:.2f}M"
+        elif num >= 1e3:
+            return f"{num/1e3:.2f}K"
+        else:
+            return str(num)
+    
+    metrics_text = f"""Inference Metrics:
+- Inference Time: {inference_time:.2f}s
+- GFLOPs: {gflops:.2f}
+- FPS: {fps:.2f}
 
-    return summary_text, orig, f"Inference Time: {inference_time:.2f}s\nGFLOPs: {gflops:.2f}\nFPS: {fps:.2f}", json.dumps(detections, indent=2), inter_img, histogram_img, inter_out_file, model_structure
+Model Information:
+- Total Parameters: {format_params(total_params)}
+- Trainable Parameters: {format_params(trainable_params)}
+- Total Layers: {total_layers}"""
+
+    return summary_text, orig, metrics_text, json.dumps(detections, indent=2), inter_img, histogram_img, inter_out_file, model_structure
 
 def get_model_structure(model_choice):
     model_path = os.path.join("model", model_choice)
     model = DetectMultiBackend(model_path, device="cpu")
-    return str(model.model)
+    
+    # Calculate total parameters
+    total_params = sum(p.numel() for p in model.model.parameters())
+    trainable_params = sum(p.numel() for p in model.model.parameters() if p.requires_grad)
+    
+    # Count total layers
+    total_layers = 0
+    named_modules = list(model.model.named_modules())
+    for name, module in named_modules:
+        if len(list(module.children())) == 0:  # Leaf modules only
+            total_layers += 1
+    
+    # Format parameter counts
+    def format_params(num):
+        if num >= 1e6:
+            return f"{num/1e6:.2f}M"
+        elif num >= 1e3:
+            return f"{num/1e3:.2f}K"
+        else:
+            return str(num)
+    
+    model_info = f"""Model Statistics:
+- Total Parameters: {format_params(total_params)} ({total_params:,})
+- Trainable Parameters: {format_params(trainable_params)} ({trainable_params:,})
+- Total Layers: {total_layers}
+- Model Architecture: {type(model.model).__name__}
+
+Model Structure:
+{str(model.model)}"""
+    
+    return model_info
 
 # Gradio Interface with model and layer selection
 
@@ -240,29 +299,79 @@ def get_default_layer():
         return layers[0] if layers else None
     return None
 
-demo = gr.Interface(
-    fn=detect,
-    inputs=[
-        gr.Image(type="pil", label="Upload Image"),
-        gr.Dropdown(choices=get_model_choices(), value=get_default_model(), label="Select Model"),
-        gr.Dropdown(choices=get_layer_choices(os.path.join("model", get_default_model())) if get_default_model() else [], value=get_default_layer(), label="Select Layer"),
-        gr.ColorPicker(value="green", label="Color for Confidence >= 0.5"),
-        gr.ColorPicker(value="red", label="Color for Confidence < 0.5"),
-        gr.Slider(minimum=0.0, maximum=1.0, value=0.45, step=0.05, label="IoU Threshold for NMS"),
-        gr.Slider(minimum=0.0, maximum=1.0, value=0.25, step=0.05, label="Confidence Threshold")
-    ],
-    outputs=[
-        gr.Textbox(label="Detection Summary"),
-        gr.Image(type="pil", label="Detected Image"),
-        gr.Textbox(label="Inference Metrics (GFLOPs, FPS, etc.)"),
-        gr.Textbox(label="Detection Results (JSON)"),
-        gr.Image(type="pil", label="Intermediate Layer Output"),
-        gr.Image(type="pil", label="Pixel Distribution Histogram"),
-        gr.File(label="Download Intermediate Layer Output (NumPy Tensor)"),
-        gr.Textbox(label="Model Structure", lines=10, max_lines=20)
-    ],
-    title="YOLOv5 Object Detection",
-    description="Aplikasi deteksi objek menggunakan model dengan YOLOv5. Adjust IoU threshold to control Non-Maximum Suppression overlap filtering and confidence threshold to filter detections.",
-)
+def refresh_models():
+    """Refresh the list of available models"""
+    return gr.Dropdown(choices=get_model_choices(), value=get_default_model())
+
+def update_layers(model_choice):
+    """Update layer choices when model is changed"""
+    if model_choice:
+        layers = get_layer_choices(os.path.join("model", model_choice))
+        return gr.Dropdown(choices=layers, value=layers[0] if layers else None)
+    return gr.Dropdown(choices=[], value=None)
+
+with gr.Blocks() as demo:
+    gr.Markdown("# YOLOv5 Object Detection")
+    gr.Markdown("Aplikasi deteksi objek menggunakan model dengan YOLOv5. Adjust IoU threshold to control Non-Maximum Suppression overlap filtering and confidence threshold to filter detections.")
+    
+    with gr.Row():
+        with gr.Column(scale=1):
+            image_input = gr.Image(type="pil", label="Upload Image", height=300)
+            
+            with gr.Row():
+                model_dropdown = gr.Dropdown(choices=get_model_choices(), value=get_default_model(), label="Select Model", scale=3)
+                refresh_btn = gr.Button("🔄", size="sm", scale=1)
+            
+            layer_dropdown = gr.Dropdown(choices=get_layer_choices(os.path.join("model", get_default_model())) if get_default_model() else [], value=get_default_layer(), label="Select Layer")
+            
+            with gr.Row():
+                above_color = gr.ColorPicker(value="green", label="High Conf Color")
+                below_color = gr.ColorPicker(value="red", label="Low Conf Color")
+            
+            with gr.Row():
+                iou_threshold = gr.Slider(minimum=0.0, maximum=1.0, value=0.45, step=0.05, label="IoU Threshold")
+                conf_threshold = gr.Slider(minimum=0.0, maximum=1.0, value=0.25, step=0.05, label="Confidence Threshold")
+            
+            detect_btn = gr.Button("🔍 Detect Objects", variant="primary")
+        
+        with gr.Column(scale=1):
+            detected_image = gr.Image(type="pil", label="Detected Image", height=300)
+            summary_output = gr.Textbox(label="Detection Summary", lines=3)
+    
+    with gr.Row():
+        with gr.Column():
+            metrics_output = gr.Textbox(label="Inference & Model Metrics", lines=8)
+        with gr.Column():
+            json_output = gr.Textbox(label="Detection Results (JSON)", lines=8)
+    
+    with gr.Row():
+        with gr.Column():
+            intermediate_output = gr.Image(type="pil", label="Intermediate Layer Output", height=250)
+        with gr.Column():
+            histogram_output = gr.Image(type="pil", label="Pixel Distribution", height=250)
+    
+    with gr.Row():
+        with gr.Column():
+            download_output = gr.File(label="Download Layer Output (.npy)")
+        with gr.Column():
+            structure_output = gr.Textbox(label="Model Structure", lines=8, max_lines=15)
+    
+    # Event handlers
+    refresh_btn.click(
+        fn=lambda: get_model_choices(),
+        outputs=model_dropdown
+    )
+    
+    model_dropdown.change(
+        fn=update_layers,
+        inputs=model_dropdown,
+        outputs=layer_dropdown
+    )
+    
+    detect_btn.click(
+        fn=detect,
+        inputs=[image_input, model_dropdown, layer_dropdown, above_color, below_color, iou_threshold, conf_threshold],
+        outputs=[summary_output, detected_image, metrics_output, json_output, intermediate_output, histogram_output, download_output, structure_output]
+    )
 
 demo.launch()
