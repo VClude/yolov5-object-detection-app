@@ -87,9 +87,160 @@ def get_layer_choices(model_path):
             layers.append(description)
     
     return layers
+def get_layer_code_and_switch_tab(layer_choice):
+    """Extract the code for a specific layer class from common.py and switch to layer code tab"""
+    code = get_layer_code(layer_choice)
+    return code, gr.Tabs(selected="layer_code")
+
+def get_layer_code(layer_choice):
+    """Extract the code for a specific layer class from common.py"""
+    if not layer_choice:
+        return "No layer selected."
+    
+    # Extract the module type from the layer choice
+    if '(' in layer_choice:
+        # Format: "layer_name (Module Type, LayerType in Layer ParentType)"
+        module_info = layer_choice.split('(')[1].split(')')[0]
+        # Extract the module type (first part before comma)
+        if ',' in module_info:
+            # Get the module type (e.g., "Module CoordinateAttention" -> "CoordinateAttention")
+            module_part = module_info.split(',')[0].strip()
+            if module_part.startswith('Module '):
+                layer_type = module_part.replace('Module ', '')
+            else:
+                layer_type = module_part
+        else:
+            # If no comma, extract the module type directly
+            if module_info.startswith('Module '):
+                layer_type = module_info.replace('Module ', '')
+            else:
+                layer_type = module_info.strip()
+    else:
+        return "Could not parse layer information."
+    
+    # Special case: If the module is C3CA, show both C3CA and CABottleneck code
+    show_both_classes = False
+    original_layer_type = layer_type
+    if layer_type == 'C3CA':
+        show_both_classes = True
+    
+    # Read the common.py file
+    common_py_path = os.path.join("yolov5", "models", "common.py")
+    
+    try:
+        with open(common_py_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+        
+        # Find the class definition
+        lines = content.split('\n')
+        class_start = None
+        class_end = None
+        indent_level = None
+        
+        for i, line in enumerate(lines):
+            # Look for class definition
+            if line.strip().startswith(f'class {layer_type}(') or line.strip() == f'class {layer_type}:':
+                class_start = i
+                # Find the indentation level of the class
+                indent_level = len(line) - len(line.lstrip())
+                break
+        
+        if class_start is None:
+            # If the main module type is not found, check if it's a standard PyTorch module
+            # and try to find any custom module mentioned in the layer choice
+            if ',' in layer_choice and 'in Layer' in layer_choice:
+                # Try to extract the parent layer type
+                parts = layer_choice.split('in Layer')
+                if len(parts) > 1:
+                    parent_type = parts[1].strip().rstrip(')')
+                    # Search for the parent type instead
+                    for i, line in enumerate(lines):
+                        if line.strip().startswith(f'class {parent_type}(') or line.strip() == f'class {parent_type}:':
+                            class_start = i
+                            layer_type = parent_type
+                            indent_level = len(line) - len(line.lstrip())
+                            break
+            
+            if class_start is None:
+                return f"""Class '{layer_type}' not found in common.py
+
+This might be a standard PyTorch module. The available custom classes in common.py include:
+Conv, DWConv, TransformerLayer, TransformerBlock, Bottleneck, BottleneckCSP, 
+CrossConv, C3, C3x, C3TR, C3SPP, C3Ghost, SPP, SPPF, Focus, GhostConv, 
+GhostBottleneck, CABottleneck, ChannelAttention, SpatialAttention, CBAM, 
+CoordinateAttention, C3CA, DetectMultiBackend, AutoShape, Detections, etc.
+
+Selected layer: {layer_choice}"""
+        
+        # Find the end of the class (next class or function at same or lower indentation)
+        for i in range(class_start + 1, len(lines)):
+            line = lines[i]
+            if line.strip() == '':
+                continue
+            current_indent = len(line) - len(line.lstrip())
+            # If we hit a line with same or less indentation that starts a new class/function/def
+            if (current_indent <= indent_level and 
+                (line.strip().startswith('class ') or 
+                 line.strip().startswith('def ') or
+                 line.strip().startswith('# ') and line.strip().startswith('# ') and len(line.strip()) > 10)):
+                class_end = i
+                break
+        
+        if class_end is None:
+            class_end = len(lines)
+        
+        # Extract the class code
+        class_code = '\n'.join(lines[class_start:class_end])
+        
+        # If we need to show both C3CA and CABottleneck, get CABottleneck code too
+        additional_code = ""
+        if show_both_classes and original_layer_type == 'C3CA':
+            # Find CABottleneck class
+            cabottleneck_start = None
+            cabottleneck_end = None
+            for i, line in enumerate(lines):
+                if line.strip().startswith('class CABottleneck(') or line.strip() == 'class CABottleneck:':
+                    cabottleneck_start = i
+                    cabottleneck_indent = len(line) - len(line.lstrip())
+                    break
+            
+            if cabottleneck_start is not None:
+                # Find end of CABottleneck class
+                for i in range(cabottleneck_start + 1, len(lines)):
+                    line = lines[i]
+                    if line.strip() == '':
+                        continue
+                    current_indent = len(line) - len(line.lstrip())
+                    if (current_indent <= cabottleneck_indent and 
+                        (line.strip().startswith('class ') or 
+                         line.strip().startswith('def ') or
+                         line.strip().startswith('# ') and len(line.strip()) > 10)):
+                        cabottleneck_end = i
+                        break
+                
+                if cabottleneck_end is None:
+                    cabottleneck_end = len(lines)
+                
+                cabottleneck_code = '\n'.join(lines[cabottleneck_start:cabottleneck_end])
+                additional_code = f"\n\n# Related CABottleneck class used by C3CA:\n{cabottleneck_code}"
+        
+        # Add some context information
+        result = f"""# Layer Type: {original_layer_type}
+# Selected Layer: {layer_choice}
+# Source: yolov5/models/common.py
+
+{class_code}{additional_code}"""
+        
+        return result
+        
+    except FileNotFoundError:
+        return f"Could not find common.py file at {common_py_path}"
+    except Exception as e:
+        return f"Error reading code: {str(e)}"
+
 # Detection function using detect.py logic
 
-def detect(image, model_choice, layer_choice, above_color, below_color, iou_threshold, conf_threshold, image_size):
+def detect(image, model_choice, layer_choice, above_color, below_color, iou_threshold, conf_threshold, image_size, magnifier):
     # Check if image is provided
     if image is None:
         return "Please upload an image first.", None, "No metrics available", "No detections", None, None, None, "No model structure available", None
@@ -184,8 +335,23 @@ def detect(image, model_choice, layer_choice, above_color, below_color, iou_thre
                 summary[names[cls_id]][conf_key] += 1
 
     summary_lines = []
+    total_high_confidence = 0
     for cls, counts in summary.items():
         summary_lines.append(f"There is {counts['above']} of [{cls}] detected with above 0.5 confidence, and {counts['below']} of [{cls}] detected with below 0.5 confidence")
+        total_high_confidence += counts['above']
+    
+    # Calculate density using magnifier data
+    magnifier_data = {
+        "200x": {"value": 200, "label": "200x", "x": 0.66152, "y": 0.37052},
+        "400x": {"value": 400, "label": "400x", "x": 0.33097, "y": 0.18568}
+    }
+    
+    if magnifier and magnifier in magnifier_data:
+        mag_info = magnifier_data[magnifier]
+        mag_area = float(mag_info['x']) * float(mag_info['y'])
+        density = round(total_high_confidence / mag_area, 2) if mag_area > 0 else 0
+        summary_lines.append(f"\nThe Density of object is : {density} mm2")
+    
     summary_text = "\n".join(summary_lines) if summary_lines else "No objects detected."
 
     inter_out = intermediate.get('output')
@@ -595,7 +761,7 @@ def update_layers(model_choice):
 
 with gr.Blocks() as demo:
     gr.Markdown("# YOLOv5 Object Detection")
-    gr.Markdown("Aplikasi deteksi objek menggunakan model dengan YOLOv5. Adjust IoU threshold to control Non-Maximum Suppression overlap filtering and confidence threshold to filter detections.")
+    gr.Markdown("Aplikasi deteksi objek menggunakan model dengan YOLOv5.")
     
     with gr.Row():
         with gr.Column(scale=1):
@@ -607,14 +773,16 @@ with gr.Blocks() as demo:
             
             layer_dropdown = gr.Dropdown(choices=get_layer_choices(os.path.join("model", get_default_model())) if get_default_model() else [], value=get_default_layer(), label="Select Layer")
             
+            show_code_btn = gr.Button("📄 Show Code", variant="secondary", size="sm")
+            
             detect_btn = gr.Button("🔍 Detect Objects", variant="primary", size="lg")
         
         with gr.Column(scale=1):
             detected_image = gr.Image(type="pil", label="Detected Image", height=350)
             summary_output = gr.Textbox(label="Detection Summary", lines=8, max_lines=12)
     
-    with gr.Tabs():
-        with gr.Tab("Configuration"):
+    with gr.Tabs() as tabs:
+        with gr.Tab("Configuration", id="config"):
             with gr.Row():
                 with gr.Column():
                     gr.Markdown("### Color Settings")
@@ -629,13 +797,18 @@ with gr.Blocks() as demo:
                 with gr.Column():
                     gr.Markdown("### Image Processing")
                     image_size = gr.Dropdown(choices=[384, 640, 960, 1280], value=640, label="Yolo Detection Input Image Size (pixels)")
+                    magnifier = gr.Dropdown(
+                        choices=["200x", "400x"],
+                        value="200x",
+                        label="Select Magnifier"
+                    )
         
-        with gr.Tab("Analysis Results"):
+        with gr.Tab("Analysis Results", id="analysis"):
             with gr.Row():
                 metrics_output = gr.Textbox(label="Inference & Model Metrics", lines=8, max_lines=12)
                 json_output = gr.Textbox(label="Detection Results (JSON)", lines=8, max_lines=12)
         
-        with gr.Tab("Layer Analysis"):
+        with gr.Tab("Layer Analysis", id="layer_analysis"):
             with gr.Row():
                 intermediate_output = gr.Image(type="pil", label="Intermediate Layer Output", height=250)
                 histogram_output = gr.Image(type="pil", label="Pixel Distribution", height=250)
@@ -643,12 +816,15 @@ with gr.Blocks() as demo:
             with gr.Row():
                 download_output = gr.File(label="Download Layer Output (.npy)")
         
-        with gr.Tab("Model Structure"):
+        with gr.Tab("Model Structure", id="structure"):
             with gr.Row():
                 with gr.Column():
                     architecture_diagram = gr.Image(type="pil", label="Model Architecture Diagram", height=400)
                 with gr.Column():
                     structure_output = gr.Textbox(label="Model Structure Details", lines=15, max_lines=25)
+        
+        with gr.Tab("Layer Code", id="layer_code"):
+            layer_code_output = gr.Textbox(label="Layer Implementation Code", lines=20, max_lines=30, show_copy_button=True)
     
     # Event handlers
     refresh_btn.click(
@@ -664,8 +840,14 @@ with gr.Blocks() as demo:
     
     detect_btn.click(
         fn=detect,
-        inputs=[image_input, model_dropdown, layer_dropdown, above_color, below_color, iou_threshold, conf_threshold, image_size],
+        inputs=[image_input, model_dropdown, layer_dropdown, above_color, below_color, iou_threshold, conf_threshold, image_size, magnifier],
         outputs=[summary_output, detected_image, metrics_output, json_output, intermediate_output, histogram_output, download_output, structure_output, architecture_diagram]
+    )
+    
+    show_code_btn.click(
+        fn=get_layer_code_and_switch_tab,
+        inputs=layer_dropdown,
+        outputs=[layer_code_output, tabs]
     )
 
 demo.launch()
