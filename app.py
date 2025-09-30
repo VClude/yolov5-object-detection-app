@@ -277,9 +277,7 @@ def get_model_structure(model_choice):
     
     model_info = f"""Model Statistics:
 - Total Parameters: {format_params(total_params)} ({total_params:,})
-- Trainable Parameters: {format_params(trainable_params)} ({trainable_params:,})
 - Total Layers: {total_layers}
-- Model Architecture: {type(model.model).__name__}
 
 Model Structure:
 {str(model.model)}"""
