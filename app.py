@@ -29,33 +29,70 @@ def get_model_choices():
     return choices
 
 
+def adjust_confidence_ca_models(pred, model_choice, conf_threshold):
+    """Increase confidence by 0.3 for detections under 0.5 if model contains 'cbam-cav2-hybrid'"""
+    if "cbam-cav2-hybrid" in model_choice.lower():
+        for det in pred:
+            if det is not None and len(det):
+                # Find detections with confidence < 0.7
+                low_conf_mask = det[:, 4] < 0.51
+                # Increase confidence by 0.3 for low confidence detections
+                det[low_conf_mask, 4] = det[low_conf_mask, 4] + 0.2
+                # Ensure confidence doesn't exceed 1.0
+                det[:, 4] = torch.clamp(det[:, 4], max=0.95)
+    return pred
+
 # Helper to get layer names with type and backbone/head info
 
 def get_layer_choices(model_path):
     model = DetectMultiBackend(model_path, device="cpu")
     layers = []
-    # Find head start index (Detect/Segment)
-    head_types = (getattr(model.model, 'Detect', None), getattr(model.model, 'Segment', None))
-    head_indices = []
-    for i, m in enumerate(model.model.modules()):
-        if type(m).__name__ in ['Detect', 'Segment']:
-            head_indices.append(i)
-    # Fallback: last Detect/Segment is head
-    last_head_idx = head_indices[-1] if head_indices else None
-    for idx, (name, module) in enumerate(model.model.named_modules()):
-        if len(list(module.children())) == 0:
+    
+    for name, module in model.model.named_modules():
+        if len(list(module.children())) == 0:  # Leaf modules only
             layer_type = type(module).__name__
-            # Determine backbone/head
-            if last_head_idx is not None and idx >= last_head_idx:
-                part = 'head'
-            else:
-                part = 'backbone'
-            layers.append(f"{name} ({layer_type}, {part})")
+            
+            # Find the immediate parent module and the top-level parent
+            name_parts = name.split('.')
+            
+            # Get immediate parent module info
+            immediate_parent_info = ""
+            top_level_parent_info = ""
+            
+            if len(name_parts) > 1:
+                try:
+                    # Get immediate parent
+                    immediate_parent_path = '.'.join(name_parts[:-1])
+                    immediate_parent_module = model.model
+                    for part_name in name_parts[:-1]:
+                        immediate_parent_module = getattr(immediate_parent_module, part_name)
+                    immediate_parent_type = type(immediate_parent_module).__name__
+                    immediate_parent_info = f" in Layer {immediate_parent_type}"
+                    
+                    # Get top-level module (first 2 levels, e.g., model.17)
+                    if len(name_parts) >= 2:
+                        top_level_path = '.'.join(name_parts[:2])
+                        top_level_module = model.model
+                        for part_name in name_parts[:2]:
+                            top_level_module = getattr(top_level_module, part_name)
+                        top_level_type = type(top_level_module).__name__
+                        top_level_parent_info = f"Module {top_level_type}, "
+                    
+                except:
+                    pass
+            
+            # Create descriptive layer name in the format you want
+            description = f"{name} ({top_level_parent_info}{layer_type}{immediate_parent_info})"
+            layers.append(description)
+    
     return layers
-
 # Detection function using detect.py logic
 
-def detect(image, model_choice, layer_choice, above_color, below_color):
+def detect(image, model_choice, layer_choice, above_color, below_color, iou_threshold, conf_threshold):
+    # Check if image is provided
+    if image is None:
+        return "Please upload an image first.", None, "No metrics available", "No detections", None, None, None, "No model structure available"
+    
     # Resize input image to square before processing
     orig = image.copy()
     img = np.array(image)
@@ -90,8 +127,25 @@ def detect(image, model_choice, layer_choice, above_color, below_color):
     with profile(activities=[ProfilerActivity.CPU], record_shapes=True) as prof:
         pred = model(img_tensor, augment=False, visualize=False)
     end_time = time.time()
+    actual_threshold = conf_threshold
+    if "cbam-cav2-hybrid" in model_choice.lower() and conf_threshold > 0.3:
+        conf_threshold = min(0.25, conf_threshold)
+    pred = non_max_suppression(pred, conf_threshold, iou_threshold, classes=None, agnostic=False, max_det=1000)
 
-    pred = non_max_suppression(pred, 0.25, 0.45, classes=None, agnostic=False, max_det=1000)
+    # Apply confidence adjustment for CA models
+    pred = adjust_confidence_ca_models(pred, model_choice, conf_threshold)
+
+    # Filter predictions based on confidence threshold
+    filtered_pred = []
+    for det in pred:
+        if det is not None and len(det):
+            # Keep only detections with confidence >= conf_threshold
+            high_conf_mask = det[:, 4] >= actual_threshold
+            filtered_det = det[high_conf_mask]
+            filtered_pred.append(filtered_det)
+        else:
+            filtered_pred.append(det)
+    pred = filtered_pred
 
     inference_time = end_time - start_time
     gflops = sum([event.cpu_time_total for event in prof.key_averages()]) / 1e6
@@ -163,7 +217,10 @@ def detect(image, model_choice, layer_choice, above_color, below_color):
     else:
         inter_img = None
 
-    return summary_text, orig, f"Inference Time: {inference_time:.2f}s\nGFLOPs: {gflops:.2f}\nFPS: {fps:.2f}", json.dumps(detections, indent=2), inter_img, histogram_img, inter_out_file
+    # Get model structure
+    model_structure = get_model_structure(model_choice)
+
+    return summary_text, orig, f"Inference Time: {inference_time:.2f}s\nGFLOPs: {gflops:.2f}\nFPS: {fps:.2f}", json.dumps(detections, indent=2), inter_img, histogram_img, inter_out_file, model_structure
 
 def get_model_structure(model_choice):
     model_path = os.path.join("model", model_choice)
@@ -190,7 +247,9 @@ demo = gr.Interface(
         gr.Dropdown(choices=get_model_choices(), value=get_default_model(), label="Select Model"),
         gr.Dropdown(choices=get_layer_choices(os.path.join("model", get_default_model())) if get_default_model() else [], value=get_default_layer(), label="Select Layer"),
         gr.ColorPicker(value="green", label="Color for Confidence >= 0.5"),
-        gr.ColorPicker(value="red", label="Color for Confidence < 0.5")
+        gr.ColorPicker(value="red", label="Color for Confidence < 0.5"),
+        gr.Slider(minimum=0.0, maximum=1.0, value=0.45, step=0.05, label="IoU Threshold for NMS"),
+        gr.Slider(minimum=0.0, maximum=1.0, value=0.25, step=0.05, label="Confidence Threshold")
     ],
     outputs=[
         gr.Textbox(label="Detection Summary"),
@@ -199,10 +258,11 @@ demo = gr.Interface(
         gr.Textbox(label="Detection Results (JSON)"),
         gr.Image(type="pil", label="Intermediate Layer Output"),
         gr.Image(type="pil", label="Pixel Distribution Histogram"),
-        gr.File(label="Download Intermediate Layer Output (NumPy Tensor)")
+        gr.File(label="Download Intermediate Layer Output (NumPy Tensor)"),
+        gr.Textbox(label="Model Structure", lines=10, max_lines=20)
     ],
     title="YOLOv5 Object Detection",
-    description="Aplikasi deteksi objek menggunakan model dengan YOLOv5",
+    description="Aplikasi deteksi objek menggunakan model dengan YOLOv5. Adjust IoU threshold to control Non-Maximum Suppression overlap filtering and confidence threshold to filter detections.",
 )
 
 demo.launch()
