@@ -1,7 +1,9 @@
 # -*- mode: python ; coding: utf-8 -*-
 from PyInstaller.utils.hooks import collect_data_files
 
-datas = []
+datas = [
+    ('yolov5', 'yolov5/'),
+]
 datas += collect_data_files('gradio_client')
 datas += collect_data_files('gradio')
 
@@ -30,7 +32,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name='Yolo_V1_4',
+    name='Yolo_V1_5',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

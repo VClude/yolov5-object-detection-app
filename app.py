@@ -3,6 +3,7 @@ import torch
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 import os
+import sys
 import json
 from yolov5.models.common import DetectMultiBackend
 from yolov5.utils.augmentations import letterbox
@@ -15,6 +16,15 @@ from torch.profiler import profile, ProfilerActivity
 import time
 import pathlib
 import platform
+
+def get_resource_path(relative_path):
+    """Get absolute path to resource, works for dev and for PyInstaller"""
+    try:
+        # PyInstaller creates a temp folder and stores path in _MEIPASS
+        base_path = sys._MEIPASS
+    except Exception:
+        base_path = os.path.abspath(".")
+    return os.path.join(base_path, relative_path)
 
 # Fix for Windows path compatibility
 if platform.system() == 'Windows':
@@ -125,7 +135,7 @@ def get_layer_code(layer_choice):
         show_both_classes = True
     
     # Read the common.py file
-    common_py_path = os.path.join("yolov5", "models", "common.py")
+    common_py_path = get_resource_path(os.path.join("yolov5", "models", "common.py"))
     
     try:
         with open(common_py_path, 'r', encoding='utf-8') as f:
