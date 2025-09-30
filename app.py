@@ -8,6 +8,7 @@ from yolov5.models.common import DetectMultiBackend
 from yolov5.utils.augmentations import letterbox
 from yolov5.utils.general import non_max_suppression, scale_boxes
 import matplotlib.pyplot as plt
+import matplotlib.patches as patches
 import io
 import tempfile
 from torch.profiler import profile, ProfilerActivity
@@ -91,7 +92,7 @@ def get_layer_choices(model_path):
 def detect(image, model_choice, layer_choice, above_color, below_color, iou_threshold, conf_threshold):
     # Check if image is provided
     if image is None:
-        return "Please upload an image first.", None, "No metrics available", "No detections", None, None, None, "No model structure available"
+        return "Please upload an image first.", None, "No metrics available", "No detections", None, None, None, "No model structure available", None
     
     # Resize input image to square before processing
     orig = image.copy()
@@ -220,6 +221,9 @@ def detect(image, model_choice, layer_choice, above_color, below_color, iou_thre
     # Get model structure
     model_structure = get_model_structure(model_choice)
     
+    # Create model architecture diagram
+    architecture_diagram = create_model_architecture_diagram(model_choice)
+    
     # Calculate model parameters for metrics
     total_params = sum(p.numel() for p in model.model.parameters())
     trainable_params = sum(p.numel() for p in model.model.parameters() if p.requires_grad)
@@ -249,7 +253,7 @@ Model Information:
 - Trainable Parameters: {format_params(trainable_params)}
 - Total Layers: {total_layers}"""
 
-    return summary_text, orig, metrics_text, json.dumps(detections, indent=2), inter_img, histogram_img, inter_out_file, model_structure
+    return summary_text, orig, metrics_text, json.dumps(detections, indent=2), inter_img, histogram_img, inter_out_file, model_structure, architecture_diagram
 
 def get_model_structure(model_choice):
     model_path = os.path.join("model", model_choice)
@@ -283,6 +287,286 @@ Model Structure:
 {str(model.model)}"""
     
     return model_info
+
+def create_model_architecture_diagram(model_choice):
+    """Create a professional visual diagram of the YOLOv5 model architecture"""
+    try:
+        model_path = os.path.join("model", model_choice)
+        model = DetectMultiBackend(model_path, device="cpu")
+        
+        # Create figure with professional styling
+        plt.style.use('default')
+        fig, ax = plt.subplots(1, 1, figsize=(20, 14))
+        ax.set_xlim(0, 24)
+        ax.set_ylim(0, 18)
+        ax.axis('off')
+        fig.patch.set_facecolor('white')
+        
+        # Professional color scheme
+        colors = {
+            'Conv': '#FF4757',      # Red
+            'BatchNorm2d': '#FF6348',
+            'SiLU': '#FF7675',
+            'C3': '#00D2D3',        # Cyan
+            'SPPF': '#0984E3',      # Blue
+            'Upsample': '#00B894',  # Green
+            'Concat': '#FDCB6E',    # Yellow
+            'Detect': '#A29BFE',    # Purple
+            'AvgPool2d': '#E17055',
+            'Conv2d': '#FF4757',
+            'Default': '#000000'
+        }
+        
+        # Get actual model structure
+        model_layers = []
+        for name, module in model.model.named_modules():
+            if '.' in name and len(name.split('.')) == 2:  # Top-level modules
+                layer_idx = name.split('.')[1]
+                if layer_idx.isdigit():
+                    model_layers.append((int(layer_idx), name, type(module).__name__))
+        
+        model_layers.sort(key=lambda x: x[0])
+        
+        # Define YOLOv5 architecture structure
+        backbone_layers = []
+        neck_layers = []
+        head_layers = []
+        backbone_total = 12 if "cbam" in model_choice.lower() else 9
+        for idx, name, module_type in model_layers:
+            if idx <= backbone_total:
+                backbone_layers.append((idx, name, module_type))
+            elif idx <= 23:
+                neck_layers.append((idx, name, module_type))
+            else:
+                head_layers.append((idx, name, module_type))
+        
+        # Title
+        ax.text(12, 17, f'YOLOv5 Architecture: {model_choice.split("/")[0]}', 
+                ha='center', va='center', fontsize=20, fontweight='bold')
+        
+        # Input section
+        input_y = 15.5
+        ax.text(2, input_y + 0.8, 'Input', ha='center', va='center', 
+                fontsize=14, fontweight='bold', color='#2D3436')
+        
+        # Draw input image
+        input_rect = patches.FancyBboxPatch((1, input_y-0.4), 2, 0.8, 
+                                          boxstyle="round,pad=0.1", 
+                                          facecolor='#74B9FF', edgecolor='#0984E3', linewidth=2)
+        ax.add_patch(input_rect)
+        ax.text(2, input_y, '640×640×3', ha='center', va='center', 
+                fontsize=10, fontweight='bold', color='white')
+        
+        # Backbone section
+        backbone_y = 13
+        ax.text(1, backbone_y + 1, 'Backbone\n(CSPDarknet53)', ha='center', va='center', 
+                fontsize=12, fontweight='bold', rotation=0, color='#2D3436')
+        
+        # Draw backbone layers
+        backbone_x_positions = np.linspace(3, 21, len(backbone_layers))
+        for i, (idx, name, module_type) in enumerate(backbone_layers):
+            x_pos = backbone_x_positions[i]
+            
+            # Determine color
+            if 'Conv' in module_type or 'Focus' in module_type:
+                color = colors['Conv']
+            elif 'C3' in module_type or 'CSP' in module_type:
+                color = colors['C3']
+            elif 'SPPF' in module_type or 'SPP' in module_type:
+                color = colors['SPPF']
+            else:
+                color = colors['Default']
+            
+            # Calculate box width based on text length
+            text_length = len(module_type)
+            box_width = max(0.8, min(1.6, text_length * 0.08 + 0.4))
+            
+            # Draw layer box
+            layer_rect = patches.FancyBboxPatch((x_pos-box_width/2, backbone_y-0.3), box_width, 0.6,
+                                              boxstyle="round,pad=0.05",
+                                              facecolor=color, edgecolor='black', linewidth=1)
+            ax.add_patch(layer_rect)
+            
+            # Layer text with wrapping
+            layer_text = module_type
+            # Break long text into multiple lines
+            if len(layer_text) > 99999:
+                # Find a good break point
+                mid = len(layer_text) // 2
+                break_point = mid
+                for i in range(max(0, mid-2), min(len(layer_text), mid+3)):
+                    if layer_text[i] in ['_', '2', '3']:
+                        break_point = i + 1
+                        break
+                line1 = layer_text[:break_point]
+                line2 = layer_text[break_point:]
+                ax.text(x_pos, backbone_y+0.1, line1, ha='center', va='center',
+                       fontsize=6, fontweight='bold', color='white')
+                ax.text(x_pos, backbone_y-0.1, line2, ha='center', va='center',
+                       fontsize=6, fontweight='bold', color='white')
+            else:
+                ax.text(x_pos, backbone_y, layer_text, ha='center', va='center',
+                       fontsize=7, fontweight='bold', color='white')
+            
+            ax.text(x_pos, backbone_y-0.6, f'{idx}', ha='center', va='center',
+                   fontsize=7, color='#636E72')
+        
+        neck_y = 10
+        ax.text(1, neck_y + 1, 'Neck\n', ha='center', va='center', 
+                fontsize=12, fontweight='bold', rotation=0, color='#2D3436')
+        
+        # Draw neck layers
+        neck_x_positions = np.linspace(3, 21, len(neck_layers))
+        for i, (idx, name, module_type) in enumerate(neck_layers):
+            x_pos = neck_x_positions[i]
+            
+            # Determine color
+            if 'Conv' in module_type:
+                color = colors['Conv']
+            elif 'C3' in module_type:
+                color = colors['C3']
+            elif 'Upsample' in module_type:
+                color = colors['Upsample']
+            elif 'Concat' in module_type:
+                color = colors['Concat']
+            else:
+                color = colors['Default']
+            
+            # Calculate box width based on text length
+            text_length = len(module_type)
+            box_width = max(0.8, min(1.6, text_length * 0.08 + 0.4))
+            
+            # Draw layer box
+            layer_rect = patches.FancyBboxPatch((x_pos-box_width/2, neck_y-0.3), box_width, 0.6,
+                                              boxstyle="round,pad=0.05",
+                                              facecolor=color, edgecolor='black', linewidth=1)
+            ax.add_patch(layer_rect)
+            
+            # Layer text with wrapping
+            layer_text = module_type
+            # Break long text into multiple lines
+            if len(layer_text) > 99999:
+                # Find a good break point
+                mid = len(layer_text) // 2
+                break_point = mid
+                for i in range(max(0, mid-2), min(len(layer_text), mid+3)):
+                    if layer_text[i] in ['_', '2', '3']:
+                        break_point = i + 1
+                        break
+                line1 = layer_text[:break_point]
+                line2 = layer_text[break_point:]
+                ax.text(x_pos, neck_y+0.1, line1, ha='center', va='center',
+                       fontsize=6, fontweight='bold', color='white')
+                ax.text(x_pos, neck_y-0.1, line2, ha='center', va='center',
+                       fontsize=6, fontweight='bold', color='white')
+            else:
+                ax.text(x_pos, neck_y, layer_text, ha='center', va='center',
+                       fontsize=7, fontweight='bold', color='white')
+            
+            ax.text(x_pos, neck_y-0.6, f'{idx}', ha='center', va='center',
+                   fontsize=7, color='#636E72')
+        
+        # Head section
+        head_y = 7
+        ax.text(1, head_y + 1, 'Head\n(Detect)', ha='center', va='center', 
+                fontsize=12, fontweight='bold', rotation=0, color='#2D3436')
+        
+        # Draw detection heads
+        head_positions = [8, 12, 16]  # Three detection scales
+        head_labels = ['', '', '']
+
+        for i, (x_pos, label) in enumerate(zip(head_positions, head_labels)):
+            # Draw detection head
+            head_rect = patches.FancyBboxPatch((x_pos-0.6, head_y-0.4), 1.2, 0.8,
+                                             boxstyle="round,pad=0.1",
+                                             facecolor=colors['Detect'], edgecolor='black', linewidth=1)
+            ax.add_patch(head_rect)
+            
+            ax.text(x_pos, head_y, 'Detect', ha='center', va='center',
+                   fontsize=9, fontweight='bold', color='white')
+            ax.text(x_pos, head_y-0.8, label, ha='center', va='center',
+                   fontsize=7, color='#636E72')
+        
+        # Draw connections with arrows
+        arrow_props = dict(arrowstyle='->', lw=2, color='#2D3436')
+        
+        # Input to backbone
+        ax.annotate('', xy=(3, backbone_y+0.5), xytext=(2, input_y-0.5), arrowprops=arrow_props)
+        
+        # Backbone to neck
+        ax.annotate('', xy=(12, neck_y+0.8), xytext=(12, backbone_y-0.8), arrowprops=arrow_props)
+        
+        # Neck to heads
+        for x_pos in head_positions:
+            ax.annotate('', xy=(x_pos, head_y+0.5), xytext=(x_pos, neck_y-0.8), arrowprops=arrow_props)
+        
+        # Output section
+        output_y = 4.5
+        ax.text(12, output_y + 0.8, 'Output', ha='center', va='center', 
+                fontsize=14, fontweight='bold', color='#2D3436')
+        
+        output_labels = ['Classes + Boxes\n(Large)', 'Classes + Boxes\n(Medium)', 'Classes + Boxes\n(Small)']
+        for i, (x_pos, label) in enumerate(zip(head_positions, output_labels)):
+            output_rect = patches.FancyBboxPatch((x_pos-0.6, output_y-0.3), 1.2, 0.6,
+                                               boxstyle="round,pad=0.1",
+                                               facecolor='#00B894', edgecolor='black', linewidth=1)
+            ax.add_patch(output_rect)
+            ax.text(x_pos, output_y, label, ha='center', va='center',
+                   fontsize=8, fontweight='bold', color='white')
+        
+      
+        # Model statistics
+        total_params = sum(p.numel() for p in model.model.parameters())
+        trainable_params = sum(p.numel() for p in model.model.parameters() if p.requires_grad)
+        
+        def format_params(num):
+            if num >= 1e6:
+                return f"{num/1e6:.1f}M"
+            elif num >= 1e3:
+                return f"{num/1e3:.1f}K"
+            else:
+                return str(num)
+        
+        stats_text = f"""Model Statistics:
+• Parameters: {format_params(total_params)}
+• Trainable: {format_params(trainable_params)}
+• Input Size: 640×640×3
+• Classes: {getattr(model.model, 'nc', 'N/A')}"""
+        
+        ax.text(21.5, 7, stats_text, fontsize=10, va='top', ha='left',
+               bbox=dict(boxstyle="round,pad=0.5", facecolor='#F8F9FA', 
+                        edgecolor='#DEE2E6', linewidth=1))
+        
+        plt.tight_layout()
+        
+        # Save to bytes
+        buf = io.BytesIO()
+        plt.savefig(buf, format='png', dpi=200, bbox_inches='tight', 
+                   facecolor='white', edgecolor='none')
+        buf.seek(0)
+        diagram_img = Image.open(buf).copy()
+        buf.close()
+        plt.close()
+        
+        return diagram_img
+        
+    except Exception as e:
+        # Create error image
+        fig, ax = plt.subplots(1, 1, figsize=(12, 8))
+        ax.text(0.5, 0.5, f'Error creating architecture diagram:\n{str(e)}', 
+                ha='center', va='center', fontsize=14, 
+                transform=ax.transAxes,
+                bbox=dict(boxstyle="round,pad=0.5", facecolor='#FFE5E5', edgecolor='red'))
+        ax.axis('off')
+        
+        buf = io.BytesIO()
+        plt.savefig(buf, format='png', bbox_inches='tight', facecolor='white')
+        buf.seek(0)
+        error_img = Image.open(buf).copy()
+        buf.close()
+        plt.close()
+        
+        return error_img
 
 # Gradio Interface with model and layer selection
 
@@ -356,7 +640,11 @@ with gr.Blocks() as demo:
                 download_output = gr.File(label="Download Layer Output (.npy)")
         
         with gr.Tab("Model Structure"):
-            structure_output = gr.Textbox(label="Model Structure", lines=15, max_lines=25)
+            with gr.Row():
+                with gr.Column():
+                    architecture_diagram = gr.Image(type="pil", label="Model Architecture Diagram", height=400)
+                with gr.Column():
+                    structure_output = gr.Textbox(label="Model Structure Details", lines=15, max_lines=25)
     
     # Event handlers
     refresh_btn.click(
@@ -373,7 +661,7 @@ with gr.Blocks() as demo:
     detect_btn.click(
         fn=detect,
         inputs=[image_input, model_dropdown, layer_dropdown, above_color, below_color, iou_threshold, conf_threshold],
-        outputs=[summary_output, detected_image, metrics_output, json_output, intermediate_output, histogram_output, download_output, structure_output]
+        outputs=[summary_output, detected_image, metrics_output, json_output, intermediate_output, histogram_output, download_output, structure_output, architecture_diagram]
     )
 
 demo.launch()
