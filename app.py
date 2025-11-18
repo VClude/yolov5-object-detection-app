@@ -53,6 +53,101 @@ def adjust_confidence_ca_models(pred, model_choice, conf_threshold):
                 det[:, 4] = torch.clamp(det[:, 4], max=0.95)
     return pred
 
+def parse_labelme_json(json_file):
+    """Parse LabelMe JSON file and extract bounding boxes"""
+    if json_file is None:
+        return []
+    
+    try:
+        with open(json_file.name, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        
+        boxes = []
+        for shape in data.get('shapes', []):
+            if shape['shape_type'] == 'rectangle':
+                points = shape['points']
+                # LabelMe stores rectangle as [[x1, y1], [x2, y2]]
+                x1, y1 = points[0]
+                x2, y2 = points[1]
+                label = shape.get('label', 'unknown')
+                boxes.append({
+                    'label': label,
+                    'bbox': [min(x1, x2), min(y1, y2), max(x1, x2), max(y1, y2)]
+                })
+        
+        return boxes
+    except Exception as e:
+        print(f"Error parsing LabelMe JSON: {e}")
+        return []
+
+def draw_labelme_boxes(image, boxes, color='blue'):
+    """Draw bounding boxes from LabelMe annotations on image"""
+    if image is None:
+        return None
+    
+    img = image.copy()
+    draw = ImageDraw.Draw(img)
+    font_size = 32
+    try:
+        font = ImageFont.truetype("DejaVuSans-Bold.ttf", size=font_size)
+    except:
+        font = ImageFont.load_default(size=font_size)
+    
+    for box in boxes:
+        bbox = box['bbox']
+        label = box['label']
+        draw.rectangle(bbox, outline=color, width=4)
+        text_position = (bbox[0], max(0, bbox[1] - font_size - 10))
+        draw.text(text_position, label, fill=color, font=font)
+    
+    return img
+
+def create_bbox_histogram(image, boxes, title="Bounding Box Histogram"):
+    """Create histogram of pixel values within bounding boxes"""
+    if image is None or len(boxes) == 0:
+        return None
+    
+    img_array = np.array(image)
+    all_pixels = []
+    
+    for box in boxes:
+        if 'bbox' in box:
+            bbox = box['bbox']
+            x1, y1, x2, y2 = [int(coord) for coord in bbox]
+            # Ensure coordinates are within image bounds
+            x1, y1 = max(0, x1), max(0, y1)
+            x2, y2 = min(img_array.shape[1], x2), min(img_array.shape[0], y2)
+            
+            # Extract pixels from bbox
+            bbox_pixels = img_array[y1:y2, x1:x2]
+            if bbox_pixels.size > 0:
+                # Convert to grayscale for histogram
+                if len(bbox_pixels.shape) == 3:
+                    bbox_pixels_gray = np.mean(bbox_pixels, axis=2)
+                else:
+                    bbox_pixels_gray = bbox_pixels
+                all_pixels.extend(bbox_pixels_gray.flatten())
+    
+    if len(all_pixels) == 0:
+        return None
+    
+    # Create histogram
+    plt.figure(figsize=(10, 6))
+    plt.hist(all_pixels, bins=50, color='blue', alpha=0.7, edgecolor='black')
+    plt.title(title, fontsize=14, fontweight='bold')
+    plt.xlabel("Pixel Intensity", fontsize=12)
+    plt.ylabel("Frequency", fontsize=12)
+    plt.grid(axis='y', alpha=0.3)
+    
+    buf = io.BytesIO()
+    plt.savefig(buf, format='png', dpi=100, bbox_inches='tight')
+    buf.seek(0)
+    hist_img = Image.open(buf).copy()
+    buf.close()
+    plt.close()
+    
+    return hist_img
+
 # Helper to get layer names with type and backbone/head info
 
 def get_layer_choices(model_path):
@@ -250,10 +345,10 @@ Selected layer: {layer_choice}"""
 
 # Detection function using detect.py logic
 
-def detect(image, model_choice, layer_choice, above_color, below_color, iou_threshold, conf_threshold, image_size, magnifier):
+def detect(image, model_choice, layer_choice, above_color, below_color, iou_threshold, conf_threshold, image_size, magnifier, labelme_json):
     # Check if image is provided
     if image is None:
-        return "Please upload an image first.", None, "No metrics available", "No detections", None, None, None, "No model structure available", None
+        return "Please upload an image first.", None, "No metrics available", "No detections", None, None, None, "No model structure available", None, None, None, None, None
     
     # Resize input image to square before processing
     orig = image.copy()
@@ -429,7 +524,30 @@ Model Information:
 - Trainable Parameters: {format_params(trainable_params)}
 - Total Layers: {total_layers}"""
 
-    return summary_text, orig, metrics_text, json.dumps(detections, indent=2), inter_img, histogram_img, inter_out_file, model_structure, architecture_diagram
+    # Process LabelMe JSON if provided
+    ground_truth_img = None
+    ground_truth_hist = None
+    detection_hist = None
+    detected_image_comp = orig  # Use the same detected image for comparison
+    
+    if labelme_json is not None:
+        # Parse ground truth boxes from LabelMe JSON
+        gt_boxes = parse_labelme_json(labelme_json)
+        
+        if gt_boxes:
+            # Draw ground truth boxes on original image
+            ground_truth_img = draw_labelme_boxes(image.copy(), gt_boxes, color='green')
+            
+            # Create histogram for ground truth boxes
+            ground_truth_hist = create_bbox_histogram(image, gt_boxes, "Ground Truth - Pixel Distribution in Bounding Boxes")
+            
+            # Create histogram for detection boxes (convert detections to same format)
+            # IMPORTANT: Use the original image BEFORE drawing boxes, not 'orig' which has drawings
+            detection_boxes = [{'bbox': det['bbox']} for det in detections]
+            if detection_boxes:
+                detection_hist = create_bbox_histogram(image, detection_boxes, "Detection - Pixel Distribution in Bounding Boxes")
+
+    return summary_text, orig, metrics_text, json.dumps(detections, indent=2), inter_img, histogram_img, inter_out_file, model_structure, architecture_diagram, ground_truth_img, ground_truth_hist, detection_hist, detected_image_comp
 
 def get_model_structure(model_choice):
     model_path = os.path.join("model", model_choice)
@@ -783,6 +901,8 @@ with gr.Blocks() as demo:
             
             layer_dropdown = gr.Dropdown(choices=get_layer_choices(os.path.join("model", get_default_model())) if get_default_model() else [], value=get_default_layer(), label="Select Layer")
             
+            labelme_json_input = gr.File(label="Upload LabelMe JSON (Optional)", file_types=[".json"])
+            
             show_code_btn = gr.Button("📄 Show Code", variant="secondary", size="sm")
             
             detect_btn = gr.Button("🔍 Detect Objects", variant="primary", size="lg")
@@ -812,6 +932,17 @@ with gr.Blocks() as demo:
                         value="200x",
                         label="Select Magnifier"
                     )
+        
+        with gr.Tab("Ground Truth Comparison", id="gt_comparison"):
+            gr.Markdown("### Side-by-Side Comparison: Ground Truth vs Detection")
+            with gr.Row():
+                gt_image_output = gr.Image(type="pil", label="Image A: Original Label (Ground Truth)", height=350)
+                detected_image_comp = gr.Image(type="pil", label="Image B: Detection Result", height=350)
+            
+            gr.Markdown("### Histogram Comparison")
+            with gr.Row():
+                gt_histogram_output = gr.Image(type="pil", label="Ground Truth - Pixel Distribution in Boxes", height=300)
+                det_histogram_output = gr.Image(type="pil", label="Detection - Pixel Distribution in Boxes", height=300)
         
         with gr.Tab("Analysis Results", id="analysis"):
             with gr.Row():
@@ -850,8 +981,8 @@ with gr.Blocks() as demo:
     
     detect_btn.click(
         fn=detect,
-        inputs=[image_input, model_dropdown, layer_dropdown, above_color, below_color, iou_threshold, conf_threshold, image_size, magnifier],
-        outputs=[summary_output, detected_image, metrics_output, json_output, intermediate_output, histogram_output, download_output, structure_output, architecture_diagram]
+        inputs=[image_input, model_dropdown, layer_dropdown, above_color, below_color, iou_threshold, conf_threshold, image_size, magnifier, labelme_json_input],
+        outputs=[summary_output, detected_image, metrics_output, json_output, intermediate_output, histogram_output, download_output, structure_output, architecture_diagram, gt_image_output, gt_histogram_output, det_histogram_output, detected_image_comp]
     )
     
     show_code_btn.click(
