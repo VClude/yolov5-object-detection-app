@@ -32,7 +32,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name='Yolo_V1_5',
+    name='Yolo_V1_7',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

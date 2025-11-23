@@ -40,6 +40,33 @@ def get_model_choices():
     return choices
 
 
+def get_model_path_for_purpose(model_choice, purpose="detection"):
+    """
+    Get model path based on purpose:
+    - 'detection': Always use best.pt
+    - 'architecture': Use last.pt if exists, otherwise fallback to best.pt
+    """
+    # Extract the base path (e.g., "yolov5n6-km-ca/weights")
+    base_path = model_choice.rsplit('/', 1)[0]  # Remove "best.pt"
+    
+    if purpose == "detection":
+        # Always use best.pt for detection
+        detection_path = os.path.join("model", base_path, "best.pt")
+        return detection_path
+    elif purpose == "architecture":
+        # Try last.pt first, fallback to best.pt
+        last_pt_path = os.path.join("model", base_path, "last.pt")
+        best_pt_path = os.path.join("model", base_path, "best.pt")
+        
+        if os.path.isfile(last_pt_path):
+            return last_pt_path
+        else:
+            return best_pt_path
+    else:
+        # Default to the original path
+        return os.path.join("model", model_choice)
+
+
 def adjust_confidence_ca_models(pred, model_choice, conf_threshold):
     """Increase confidence by 0.3 for detections under 0.5 if model contains 'cbam-cav2-hybrid'"""
     if "cbam-cav2-hybrid" in model_choice.lower():
@@ -211,7 +238,7 @@ def create_overlayed_histogram(image, gt_boxes, det_boxes, title="Overlayed Hist
     if len(gt_pixels) > 0:
         hist_gt, bins_gt = np.histogram(gt_pixels, bins=50, range=(0, 255))
         bin_centers_gt = (bins_gt[:-1] + bins_gt[1:]) / 2
-        plt.plot(bin_centers_gt, hist_gt, color='green', linewidth=2, label=f'Ground Truth (n={len(gt_boxes)})', alpha=0.8)
+        plt.plot(bin_centers_gt, hist_gt, color='black', linewidth=2, label=f'Ground Truth (n={len(gt_boxes)})', alpha=0.8)
     
     if len(det_pixels) > 0:
         hist_det, bins_det = np.histogram(det_pixels, bins=50, range=(0, 255))
@@ -292,7 +319,7 @@ def create_background_histogram(image, boxes, title="Background Histogram", retu
 
 
 def draw_comparison_boxes(image, gt_boxes, det_boxes):
-    """Draw both GT (green) and Detection (blue) boxes on the same image"""
+    """Draw both GT (black) and Detection (blue) boxes on the same image"""
     if image is None:
         return None
     
@@ -308,11 +335,11 @@ def draw_comparison_boxes(image, gt_boxes, det_boxes):
     for box in gt_boxes:
         bbox = box['bbox']
         label = f"GT: {box['label']}"
-        draw.rectangle(bbox, outline='green', width=3)
+        draw.rectangle(bbox, outline='black', width=3)
         text_position = (bbox[0], max(0, bbox[1] - font_size - 10))
         # Draw text background
         text_bbox = draw.textbbox(text_position, label, font=font)
-        draw.rectangle([text_bbox[0], text_bbox[1], text_bbox[2], text_bbox[3]], fill='green')
+        draw.rectangle([text_bbox[0], text_bbox[1], text_bbox[2], text_bbox[3]], fill='black')
         draw.text(text_position, label, fill='white', font=font)
     
     # Draw Detection boxes in blue
@@ -538,7 +565,8 @@ def detect(image, model_choice, layer_choice, above_color, below_color, iou_thre
     # Resize input image to square before processing
     orig = image.copy()
     img = np.array(image)
-    model_path = os.path.join("model", model_choice)
+    # Use best.pt for detection
+    model_path = get_model_path_for_purpose(model_choice, purpose="detection")
     device = "cpu"
     model = DetectMultiBackend(model_path, device=device)
     if "stomata" in model_choice.lower():
@@ -733,7 +761,7 @@ Model Information:
             gt_total = len(gt_boxes)
             
             # Draw ground truth boxes on original image
-            ground_truth_img = draw_labelme_boxes(image.copy(), gt_boxes, color='green')
+            ground_truth_img = draw_labelme_boxes(image.copy(), gt_boxes, color='black')
             
             # Filter detection boxes by confidence threshold (only above threshold)
             high_conf_detections = [det for det in detections if det.get('confidence', 0) >= actual_threshold]
@@ -786,8 +814,12 @@ Model Information:
             gt_hist_npy, det_hist_npy, gt_bg_npy, det_bg_npy, gt_total, det_total)
 
 def get_model_structure(model_choice):
-    model_path = os.path.join("model", model_choice)
+    # Use last.pt for architecture visualization (fallback to best.pt)
+    model_path = get_model_path_for_purpose(model_choice, purpose="architecture")
     model = DetectMultiBackend(model_path, device="cpu")
+    
+    # Determine which weights file is being used
+    weights_file = os.path.basename(model_path)
     
     # Calculate total parameters
     total_params = sum(p.numel() for p in model.model.parameters())
@@ -809,7 +841,9 @@ def get_model_structure(model_choice):
         else:
             return str(num)
     
-    model_info = f"""Model Statistics:
+    model_info = f"""Architecture Weights
+
+Model Statistics:
 - Total Parameters: {format_params(total_params)} ({total_params:,})
 - Total Layers: {total_layers}
 
@@ -821,7 +855,8 @@ Model Structure:
 def create_model_architecture_diagram(model_choice, image_size=640):
     """Create a professional visual diagram of the YOLOv5 model architecture"""
     try:
-        model_path = os.path.join("model", model_choice)
+        # Use last.pt for architecture visualization (fallback to best.pt)
+        model_path = get_model_path_for_purpose(model_choice, purpose="architecture")
         model = DetectMultiBackend(model_path, device="cpu")
         
         # Create figure with professional styling
@@ -870,10 +905,13 @@ def create_model_architecture_diagram(model_choice, image_size=640):
             else:
                 head_layers.append((idx, name, module_type))
         
+        # Determine which weights file is being used
+        weights_file = os.path.basename(model_path)
+        
         # Title
         ax.text(12, 17, f'YOLOv5 Architecture: {model_choice.split("/")[0]}', 
                 ha='center', va='center', fontsize=20, fontweight='bold')
-        
+
         # Input section
         input_y = 15.5
         ax.text(2, input_y + 0.8, 'Input', ha='center', va='center', 
@@ -1180,7 +1218,7 @@ with gr.Blocks() as demo:
                 gt_image_output = gr.Image(type="pil", label="Image A: Original Label (Ground Truth)", height=350)
                 detected_image_comp = gr.Image(type="pil", label="Image B: Detection Result", height=350)
             
-            gr.Markdown("### Combined Comparison (Green=GT, Blue=DET)")
+            gr.Markdown("### Combined Comparison (Black=GT, Blue=DET)")
             comparison_output = gr.Image(type="pil", label="Overlayed GT and DET Boxes", height=400)
             
             gr.Markdown("### Bounding Box Histograms (Individual)")
