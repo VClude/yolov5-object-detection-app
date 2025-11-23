@@ -102,9 +102,11 @@ def draw_labelme_boxes(image, boxes, color='blue'):
     
     return img
 
-def create_bbox_histogram(image, boxes, title="Bounding Box Histogram"):
+def create_bbox_histogram(image, boxes, title="Bounding Box Histogram", return_data=False):
     """Create histogram of pixel values within bounding boxes"""
     if image is None or len(boxes) == 0:
+        if return_data:
+            return None, None
         return None
     
     img_array = np.array(image)
@@ -129,11 +131,16 @@ def create_bbox_histogram(image, boxes, title="Bounding Box Histogram"):
                 all_pixels.extend(bbox_pixels_gray.flatten())
     
     if len(all_pixels) == 0:
+        if return_data:
+            return None, None
         return None
+    
+    # Convert to numpy array for saving
+    pixels_array = np.array(all_pixels)
     
     # Create histogram
     plt.figure(figsize=(10, 6))
-    plt.hist(all_pixels, bins=50, color='blue', alpha=0.7, edgecolor='black')
+    plt.hist(pixels_array, bins=50, color='blue', alpha=0.7, edgecolor='black')
     plt.title(title, fontsize=14, fontweight='bold')
     plt.xlabel("Pixel Intensity", fontsize=12)
     plt.ylabel("Frequency", fontsize=12)
@@ -146,7 +153,183 @@ def create_bbox_histogram(image, boxes, title="Bounding Box Histogram"):
     buf.close()
     plt.close()
     
+    if return_data:
+        # Save to temporary npy file
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".npy") as tmp_file:
+            np.save(tmp_file.name, pixels_array)
+            npy_file = tmp_file.name
+        return hist_img, npy_file
+    
     return hist_img
+
+
+def create_overlayed_histogram(image, gt_boxes, det_boxes, title="Overlayed Histogram Comparison"):
+    """Create overlayed line histogram comparing GT and Detection"""
+    if image is None:
+        return None
+    
+    img_array = np.array(image)
+    
+    # Extract GT pixels
+    gt_pixels = []
+    for box in gt_boxes:
+        if 'bbox' in box:
+            bbox = box['bbox']
+            x1, y1, x2, y2 = [int(coord) for coord in bbox]
+            x1, y1 = max(0, x1), max(0, y1)
+            x2, y2 = min(img_array.shape[1], x2), min(img_array.shape[0], y2)
+            bbox_pixels = img_array[y1:y2, x1:x2]
+            if bbox_pixels.size > 0:
+                if len(bbox_pixels.shape) == 3:
+                    bbox_pixels_gray = np.mean(bbox_pixels, axis=2)
+                else:
+                    bbox_pixels_gray = bbox_pixels
+                gt_pixels.extend(bbox_pixels_gray.flatten())
+    
+    # Extract Detection pixels
+    det_pixels = []
+    for box in det_boxes:
+        if 'bbox' in box:
+            bbox = box['bbox']
+            x1, y1, x2, y2 = [int(coord) for coord in bbox]
+            x1, y1 = max(0, x1), max(0, y1)
+            x2, y2 = min(img_array.shape[1], x2), min(img_array.shape[0], y2)
+            bbox_pixels = img_array[y1:y2, x1:x2]
+            if bbox_pixels.size > 0:
+                if len(bbox_pixels.shape) == 3:
+                    bbox_pixels_gray = np.mean(bbox_pixels, axis=2)
+                else:
+                    bbox_pixels_gray = bbox_pixels
+                det_pixels.extend(bbox_pixels_gray.flatten())
+    
+    if len(gt_pixels) == 0 and len(det_pixels) == 0:
+        return None
+    
+    # Create overlayed line histogram
+    plt.figure(figsize=(12, 6))
+    
+    if len(gt_pixels) > 0:
+        hist_gt, bins_gt = np.histogram(gt_pixels, bins=50, range=(0, 255))
+        bin_centers_gt = (bins_gt[:-1] + bins_gt[1:]) / 2
+        plt.plot(bin_centers_gt, hist_gt, color='green', linewidth=2, label=f'Ground Truth (n={len(gt_boxes)})', alpha=0.8)
+    
+    if len(det_pixels) > 0:
+        hist_det, bins_det = np.histogram(det_pixels, bins=50, range=(0, 255))
+        bin_centers_det = (bins_det[:-1] + bins_det[1:]) / 2
+        plt.plot(bin_centers_det, hist_det, color='blue', linewidth=2, label=f'Detection (n={len(det_boxes)})', alpha=0.8)
+    
+    plt.title(title, fontsize=14, fontweight='bold')
+    plt.xlabel("Pixel Intensity", fontsize=12)
+    plt.ylabel("Frequency", fontsize=12)
+    plt.legend(fontsize=11)
+    plt.grid(axis='both', alpha=0.3)
+    
+    buf = io.BytesIO()
+    plt.savefig(buf, format='png', dpi=100, bbox_inches='tight')
+    buf.seek(0)
+    hist_img = Image.open(buf).copy()
+    buf.close()
+    plt.close()
+    
+    return hist_img
+
+
+def create_background_histogram(image, boxes, title="Background Histogram", return_data=False):
+    """Create histogram of background pixels (excluding bounding boxes)"""
+    if image is None:
+        if return_data:
+            return None, None
+        return None
+    
+    img_array = np.array(image)
+    h, w = img_array.shape[:2]
+    
+    # Create mask for bounding boxes
+    mask = np.ones((h, w), dtype=bool)
+    
+    for box in boxes:
+        if 'bbox' in box:
+            bbox = box['bbox']
+            x1, y1, x2, y2 = [int(coord) for coord in bbox]
+            x1, y1 = max(0, x1), max(0, y1)
+            x2, y2 = min(w, x2), min(h, y2)
+            mask[y1:y2, x1:x2] = False
+    
+    # Extract background pixels
+    if len(img_array.shape) == 3:
+        background_pixels = np.mean(img_array, axis=2)[mask]
+    else:
+        background_pixels = img_array[mask]
+    
+    if background_pixels.size == 0:
+        if return_data:
+            return None, None
+        return None
+    
+    # Create histogram
+    plt.figure(figsize=(10, 6))
+    plt.hist(background_pixels, bins=50, color='gray', alpha=0.7, edgecolor='black')
+    plt.title(title, fontsize=14, fontweight='bold')
+    plt.xlabel("Pixel Intensity", fontsize=12)
+    plt.ylabel("Frequency", fontsize=12)
+    plt.grid(axis='y', alpha=0.3)
+    
+    buf = io.BytesIO()
+    plt.savefig(buf, format='png', dpi=100, bbox_inches='tight')
+    buf.seek(0)
+    hist_img = Image.open(buf).copy()
+    buf.close()
+    plt.close()
+    
+    if return_data:
+        # Save to temporary npy file
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".npy") as tmp_file:
+            np.save(tmp_file.name, background_pixels)
+            npy_file = tmp_file.name
+        return hist_img, npy_file
+    
+    return hist_img
+
+
+def draw_comparison_boxes(image, gt_boxes, det_boxes):
+    """Draw both GT (green) and Detection (blue) boxes on the same image"""
+    if image is None:
+        return None
+    
+    img = image.copy()
+    draw = ImageDraw.Draw(img)
+    font_size = 28
+    try:
+        font = ImageFont.truetype("DejaVuSans-Bold.ttf", size=font_size)
+    except:
+        font = ImageFont.load_default(size=font_size)
+    
+    # Draw Ground Truth boxes in green
+    for box in gt_boxes:
+        bbox = box['bbox']
+        label = f"GT: {box['label']}"
+        draw.rectangle(bbox, outline='green', width=3)
+        text_position = (bbox[0], max(0, bbox[1] - font_size - 10))
+        # Draw text background
+        text_bbox = draw.textbbox(text_position, label, font=font)
+        draw.rectangle([text_bbox[0], text_bbox[1], text_bbox[2], text_bbox[3]], fill='green')
+        draw.text(text_position, label, fill='white', font=font)
+    
+    # Draw Detection boxes in blue
+    for box in det_boxes:
+        bbox = box['bbox']
+        label = f"DET: {box.get('label', box.get('class', 'obj'))}"
+        if 'confidence' in box:
+            label += f" {box['confidence']:.2f}"
+        draw.rectangle(bbox, outline='blue', width=3)
+        text_position = (bbox[0], max(0, bbox[1] - font_size - 10))
+        # Draw text background
+        text_bbox = draw.textbbox(text_position, label, font=font)
+        draw.rectangle([text_bbox[0], text_bbox[1], text_bbox[2], text_bbox[3]], fill='blue')
+        draw.text(text_position, label, fill='white', font=font)
+    
+    return img
+
 
 # Helper to get layer names with type and backbone/head info
 
@@ -348,7 +531,9 @@ Selected layer: {layer_choice}"""
 def detect(image, model_choice, layer_choice, above_color, below_color, iou_threshold, conf_threshold, image_size, magnifier, labelme_json):
     # Check if image is provided
     if image is None:
-        return "Please upload an image first.", None, "No metrics available", "No detections", None, None, None, "No model structure available", None, None, None, None, None
+        return ("Please upload an image first.", None, "No metrics available", "No detections", None, None, None, 
+                "No model structure available", None, None, None, None, None, None, None, None, None, 
+                None, None, None, None, 0, 0)
     
     # Resize input image to square before processing
     orig = image.copy()
@@ -529,25 +714,76 @@ Model Information:
     ground_truth_hist = None
     detection_hist = None
     detected_image_comp = orig  # Use the same detected image for comparison
+    overlayed_hist = None
+    gt_bg_hist = None
+    det_bg_hist = None
+    comparison_img = None
+    gt_hist_npy = None
+    det_hist_npy = None
+    gt_bg_npy = None
+    det_bg_npy = None
+    gt_total = 0
+    det_total = 0
     
     if labelme_json is not None:
         # Parse ground truth boxes from LabelMe JSON
         gt_boxes = parse_labelme_json(labelme_json)
         
         if gt_boxes:
+            gt_total = len(gt_boxes)
+            
             # Draw ground truth boxes on original image
             ground_truth_img = draw_labelme_boxes(image.copy(), gt_boxes, color='green')
             
-            # Create histogram for ground truth boxes
-            ground_truth_hist = create_bbox_histogram(image, gt_boxes, "Ground Truth - Pixel Distribution in Bounding Boxes")
+            # Filter detection boxes by confidence threshold (only above threshold)
+            high_conf_detections = [det for det in detections if det.get('confidence', 0) >= actual_threshold]
+            det_total = len(high_conf_detections)
             
-            # Create histogram for detection boxes (convert detections to same format)
-            # IMPORTANT: Use the original image BEFORE drawing boxes, not 'orig' which has drawings
-            detection_boxes = [{'bbox': det['bbox']} for det in detections]
+            # Convert to same format for histogram processing
+            detection_boxes = [{'bbox': det['bbox'], 'label': det.get('class', 'obj'), 'confidence': det.get('confidence', 0)} for det in high_conf_detections]
+            
+            # 1. Create histogram for ground truth boxes with npy file
+            ground_truth_hist, gt_hist_npy = create_bbox_histogram(
+                image, gt_boxes, 
+                f"Ground Truth - Pixel Distribution in Boxes (Total: {gt_total})",
+                return_data=True
+            )
+            
+            # 2. Create histogram for detection boxes (only above confidence threshold) with npy file
             if detection_boxes:
-                detection_hist = create_bbox_histogram(image, detection_boxes, "Detection - Pixel Distribution in Bounding Boxes")
+                detection_hist, det_hist_npy = create_bbox_histogram(
+                    image, detection_boxes, 
+                    f"Detection - Pixel Distribution in Boxes (Total: {det_total}, Conf≥{actual_threshold:.2f})",
+                    return_data=True
+                )
+                
+                # 3. Create overlayed line histogram
+                overlayed_hist = create_overlayed_histogram(
+                    image, gt_boxes, detection_boxes,
+                    "Overlayed Histogram: GT vs Detection"
+                )
+                
+                # 4. Create comparison image with both GT and DET boxes
+                comparison_img = draw_comparison_boxes(image.copy(), gt_boxes, detection_boxes)
+            
+            # 5. Create background histograms (excluding bounding boxes) with npy files
+            gt_bg_hist, gt_bg_npy = create_background_histogram(
+                image, gt_boxes,
+                f"Ground Truth - Background Pixel Distribution (Excluding {gt_total} boxes)",
+                return_data=True
+            )
+            
+            if detection_boxes:
+                det_bg_hist, det_bg_npy = create_background_histogram(
+                    image, detection_boxes,
+                    f"Detection - Background Pixel Distribution (Excluding {det_total} boxes)",
+                    return_data=True
+                )
 
-    return summary_text, orig, metrics_text, json.dumps(detections, indent=2), inter_img, histogram_img, inter_out_file, model_structure, architecture_diagram, ground_truth_img, ground_truth_hist, detection_hist, detected_image_comp
+    return (summary_text, orig, metrics_text, json.dumps(detections, indent=2), inter_img, histogram_img, 
+            inter_out_file, model_structure, architecture_diagram, ground_truth_img, ground_truth_hist, 
+            detection_hist, detected_image_comp, overlayed_hist, comparison_img, gt_bg_hist, det_bg_hist,
+            gt_hist_npy, det_hist_npy, gt_bg_npy, det_bg_npy, gt_total, det_total)
 
 def get_model_structure(model_choice):
     model_path = os.path.join("model", model_choice)
@@ -934,15 +1170,39 @@ with gr.Blocks() as demo:
                     )
         
         with gr.Tab("Ground Truth Comparison", id="gt_comparison"):
+            # Object count summary
+            with gr.Row():
+                gt_count_output = gr.Number(label="Ground Truth Total Objects", precision=0)
+                det_count_output = gr.Number(label="Detection Total Objects (Above Threshold)", precision=0)
+            
             gr.Markdown("### Side-by-Side Comparison: Ground Truth vs Detection")
             with gr.Row():
                 gt_image_output = gr.Image(type="pil", label="Image A: Original Label (Ground Truth)", height=350)
                 detected_image_comp = gr.Image(type="pil", label="Image B: Detection Result", height=350)
             
-            gr.Markdown("### Histogram Comparison")
+            gr.Markdown("### Combined Comparison (Green=GT, Blue=DET)")
+            comparison_output = gr.Image(type="pil", label="Overlayed GT and DET Boxes", height=400)
+            
+            gr.Markdown("### Bounding Box Histograms (Individual)")
             with gr.Row():
                 gt_histogram_output = gr.Image(type="pil", label="Ground Truth - Pixel Distribution in Boxes", height=300)
-                det_histogram_output = gr.Image(type="pil", label="Detection - Pixel Distribution in Boxes", height=300)
+                det_histogram_output = gr.Image(type="pil", label="Detection - Pixel Distribution in Boxes (Conf≥Threshold)", height=300)
+            
+            with gr.Row():
+                gt_hist_download = gr.File(label="Download GT Histogram Data (.npy)")
+                det_hist_download = gr.File(label="Download DET Histogram Data (.npy)")
+            
+            gr.Markdown("### Overlayed Histogram (Line Graph)")
+            overlayed_histogram_output = gr.Image(type="pil", label="GT vs DET Overlayed Comparison", height=350)
+            
+            gr.Markdown("### Background Histograms (Excluding Bounding Boxes)")
+            with gr.Row():
+                gt_bg_histogram_output = gr.Image(type="pil", label="Ground Truth - Background Pixels", height=300)
+                det_bg_histogram_output = gr.Image(type="pil", label="Detection - Background Pixels", height=300)
+            
+            with gr.Row():
+                gt_bg_download = gr.File(label="Download GT Background Data (.npy)")
+                det_bg_download = gr.File(label="Download DET Background Data (.npy)")
         
         with gr.Tab("Analysis Results", id="analysis"):
             with gr.Row():
@@ -982,7 +1242,11 @@ with gr.Blocks() as demo:
     detect_btn.click(
         fn=detect,
         inputs=[image_input, model_dropdown, layer_dropdown, above_color, below_color, iou_threshold, conf_threshold, image_size, magnifier, labelme_json_input],
-        outputs=[summary_output, detected_image, metrics_output, json_output, intermediate_output, histogram_output, download_output, structure_output, architecture_diagram, gt_image_output, gt_histogram_output, det_histogram_output, detected_image_comp]
+        outputs=[summary_output, detected_image, metrics_output, json_output, intermediate_output, histogram_output, 
+                download_output, structure_output, architecture_diagram, gt_image_output, gt_histogram_output, 
+                det_histogram_output, detected_image_comp, overlayed_histogram_output, comparison_output, 
+                gt_bg_histogram_output, det_bg_histogram_output, gt_hist_download, det_hist_download, 
+                gt_bg_download, det_bg_download, gt_count_output, det_count_output]
     )
     
     show_code_btn.click(
