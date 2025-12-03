@@ -175,7 +175,7 @@ def create_individual_histogram(gt_pixels, det_pixels, image_name):
     return hist_img
 
 
-def create_aggregate_histogram_from_bins(gt_histogram, det_histogram):
+def create_aggregate_histogram_from_bins(gt_histogram, det_histogram, gt_count=0, det_count=0):
     """Create aggregate histogram from pre-computed histogram bins (memory-efficient)"""
     plt.figure(figsize=(14, 7))
     
@@ -186,11 +186,11 @@ def create_aggregate_histogram_from_bins(gt_histogram, det_histogram):
     
     if total_gt_pixels > 0:
         plt.plot(bin_centers, gt_histogram, color='black', linewidth=2.5, 
-                label=f'Ground Truth (Total pixels: {total_gt_pixels:,})', alpha=0.8)
+                label=f'Ground Truth (Total object: {gt_count:,})', alpha=0.8)
     
     if total_det_pixels > 0:
         plt.plot(bin_centers, det_histogram, color='blue', linewidth=2.5, 
-                label=f'Detection (Total pixels: {total_det_pixels:,})', alpha=0.8)
+                label=f'Detection (Total detection: {det_count:,})', alpha=0.8)
     
     plt.title("Aggregate Histogram: All Images Combined (GT vs DET)", fontsize=16, fontweight='bold')
     plt.xlabel("Pixel Intensity", fontsize=13)
@@ -209,7 +209,7 @@ def create_aggregate_histogram_from_bins(gt_histogram, det_histogram):
     return hist_img
 
 
-def create_aggregate_histogram(all_gt_pixels, all_det_pixels):
+def create_aggregate_histogram(all_gt_pixels, all_det_pixels, gt_count=0, det_count=0):
     """Create aggregate histogram from all images"""
     plt.figure(figsize=(14, 7))
     
@@ -217,13 +217,13 @@ def create_aggregate_histogram(all_gt_pixels, all_det_pixels):
         hist_gt, bins_gt = np.histogram(all_gt_pixels, bins=50, range=(0, 255))
         bin_centers_gt = (bins_gt[:-1] + bins_gt[1:]) / 2
         plt.plot(bin_centers_gt, hist_gt, color='black', linewidth=2.5, 
-                label=f'Ground Truth (Total pixels: {len(all_gt_pixels):,})', alpha=0.8)
+                label=f'Ground Truth (Total object: {gt_count:,})', alpha=0.8)
     
     if len(all_det_pixels) > 0:
         hist_det, bins_det = np.histogram(all_det_pixels, bins=50, range=(0, 255))
         bin_centers_det = (bins_det[:-1] + bins_det[1:]) / 2
         plt.plot(bin_centers_det, hist_det, color='blue', linewidth=2.5, 
-                label=f'Detection (Total pixels: {len(all_det_pixels):,})', alpha=0.8)
+                label=f'Detection (Total detection: {det_count:,})', alpha=0.8)
     
     plt.title("Aggregate Histogram: All Images Combined (GT vs DET)", fontsize=16, fontweight='bold')
     plt.xlabel("Pixel Intensity", fontsize=13)
@@ -452,7 +452,7 @@ def batch_process_folder(folder_path, model_choice, conf_threshold, iou_threshol
     progress_text += f"Processing Complete: {successful_count}/{total_images} images successfully processed\n"
     
     # Create aggregate histogram from accumulated histograms
-    aggregate_hist = create_aggregate_histogram_from_bins(gt_histogram, det_histogram)
+    aggregate_hist = create_aggregate_histogram_from_bins(gt_histogram, det_histogram, total_gt_boxes, total_det_boxes)
     
     # Summary statistics
     total_gt_pixels = int(gt_histogram.sum())
